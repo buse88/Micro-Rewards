@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  microsoft-rewards-script:
+    build: .
+    container_name: microsoft-rewards-script
+    restart: unless-stopped
+    volumes:
+      ### Replace "/path/to/" with the actual path to where you want to save the files on your local machine.
+      - ./src/accounts.json:/usr/src/microsoft-rewards-script/dist/accounts.json
+      - ./src/config.json:/usr/src/microsoft-rewards-script/dist/config.json 
+      - ./src/browser/sessions:/usr/src/microsoft-rewards-script/dist/browser/sessions # Optional, saves your login session
+    environment:
+      - NODE_ENV=production
+      - CRON_SCHEDULE=0 10 * * * # 每天早上10点运行
+      - RUN_ON_START=true # Runs the script on container startup
+      - TZ=Asia/Shanghai # Set your timezone for proper scheduling

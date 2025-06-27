@@ -1,0 +1,80 @@
+{
+    "onlyReport": false,
+    "baseURL": "https://rewards.bing.com",
+    "sessionPath": "sessions",
+    "headless": true,
+    "parallel": false,
+    "runOnZeroPoints": false,
+    "clusters": 1,
+    "saveFingerprint": {
+        "mobile": false,
+        "desktop": false
+    },
+    "workers": {
+        "doDailySet": true,
+        "doMorePromotions": true,
+        "doPunchCards": true,
+        "doDesktopSearch": true,
+        "doMobileSearch": true,
+        "doDailyCheckIn": true,
+        "doReadToEarn": true
+    },
+    "searchOnBingLocalQueries": false,
+    "globalTimeout": "30s",
+    "searchSettings": {
+        "useGeoLocaleQueries": false,
+		"preferredCountry": "cn",
+        "useDomesticHotAPIs": true,
+        "scrollRandomResults": false,
+        "clickRandomResults": false,
+        "searchDelay": {
+            "min": "30s",
+            "max": "180s"
+        },
+        "retryMobileSearchAmount": 1,
+        "retryDesktopSearchAmount": 1,
+        "retryDelay": "5s"
+    },
+    "networkSettings": {
+        "maxRetries": 2,
+        "retryDelay": 3000,
+        "connectionTimeout": 10000,
+        "pageLoadTimeout": 15000
+    },
+    "browserSettings": {
+        "maxConcurrentPages": 2,
+        "pageTimeout": 15000,
+        "memoryLimit": "256MB",
+        "enableGpu": false,
+        "disableImages": true,
+        "disableJavaScript": false,
+        "disableCss": false
+    },
+    "logExcludeFunc": [
+        "SEARCH-CLOSE-TABS"
+    ],
+    "webhookLogExcludeFunc": [
+        "SEARCH-CLOSE-TABS"
+    ],
+    "proxy": {
+        "proxyGoogleTrends": true,
+        "proxyBingTerms": true,
+        "proxyDomesticHotAPIs": false
+    },
+    "webhook": {
+        "enabled": false,
+        "url": "",
+        "notifyOn": [
+            "MAIN-WORKER",
+            "MAIN-PRIMARY",
+            "MAIN-ERROR"
+        ],
+        "telegram": {
+            "enabled": false,
+            "botToken": "",
+            "chatId": "",
+            "apiProxy": ""
+        }
+    },
+    "enableDebugLog": false
+}

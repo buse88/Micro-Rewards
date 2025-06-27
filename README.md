@@ -64,19 +64,19 @@
 #### 一键部署（推荐）
 ```bash
 # 一键部署，简单可靠
-wget https://raw.githubusercontent.com/buse88/Microsoft-Rewards-Script/refs/heads/CN/auto_deploy_simple.sh
+wget https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh
  && chmod +x auto_deploy_simple.sh && ./auto_deploy_simple.sh
 ```
 你可以直接使用如下命令一键全自动部署，无需手动下载脚本：
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/buse88/Microsoft-Rewards-Script/refs/heads/CN/auto_deploy_simple.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh)
 ```
 
 如未安装wget，也可以使用curl方式：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/buse88/Microsoft-Rewards-Script/refs/heads/CN/auto_deploy_simple.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh)
 ```
 
 上述命令会自动下载安装、配置并启动服务，适合新手和快速部署场景。
@@ -85,13 +85,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/buse88/Microsoft-Rewards-Scr
 
 示例：
 ```bash
-wget -O auto_deploy_simple.sh https://raw.githubusercontent.com/buse88/Microsoft-Rewards-Script/refs/heads/CN/auto_deploy_simple.sh
+wget -O auto_deploy_simple.sh https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh
 chmod +x auto_deploy_simple.sh
 bash auto_deploy_simple.sh
 ```
 或
 ```bash
-curl -fsSL -o auto_deploy_simple.sh https://raw.githubusercontent.com/buse88/Microsoft-Rewards-Script/refs/heads/CN/auto_deploy_simple.sh
+curl -fsSL -o auto_deploy_simple.sh https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh
 chmod +x auto_deploy_simple.sh
 bash auto_deploy_simple.sh
 ```
@@ -99,8 +99,8 @@ bash auto_deploy_simple.sh
 #### 手动部署
 ```bash
 # 1. 克隆项目
-git clone https://github.com/buse88/Microsoft-Rewards-Script.git
-cd Microsoft-Rewards-Script
+git clone https://github.com/buse88/Micro-Rewards.git
+cd Micro-Rewards
 
 # 2. 配置账户信息
 cp src/accounts.example.json src/accounts.json

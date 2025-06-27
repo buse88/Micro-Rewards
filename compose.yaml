@@ -1,15 +1,15 @@
 version: '3.8'
 
 services:
-  microsoft-rewards-script:
+  micro-rewards:
     build: .
-    container_name: microsoft-rewards-script
+    container_name: micro-rewards
     restart: unless-stopped
     volumes:
       ### Replace "/path/to/" with the actual path to where you want to save the files on your local machine.
-      - ./src/accounts.json:/usr/src/microsoft-rewards-script/dist/accounts.json
-      - ./src/config.json:/usr/src/microsoft-rewards-script/dist/config.json 
-      - ./src/browser/sessions:/usr/src/microsoft-rewards-script/dist/browser/sessions # Optional, saves your login session
+      - ./src/accounts.json:/usr/src/micro-rewards/dist/accounts.json
+      - ./src/config.json:/usr/src/micro-rewards/dist/config.json 
+      - ./src/browser/sessions:/usr/src/micro-rewards/dist/browser/sessions # Optional, saves your login session
     environment:
       - NODE_ENV=production
       - CRON_SCHEDULE=0 10 * * * # 每天早上10点运行

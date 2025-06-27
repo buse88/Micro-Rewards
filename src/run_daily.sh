@@ -4,10 +4,10 @@
 export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
 # Ensure TZ is set
-export TZ=${TZ}
+export TZ=${TZ:-Asia/Shanghai}
 
 # Change directory to the application directory
-cd /usr/src/microsoft-rewards-script
+cd /usr/src/micro-rewards
 
 # Define the minimum and maximum wait times in seconds
 MINWAIT=$((5*60))  # 5 minutes

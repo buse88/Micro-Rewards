@@ -21,7 +21,7 @@ echo "📝 脚本名称: $SCRIPT_NAME"
 echo "=========================================="
 echo ""
 
-REPO_URL="https://github.com/buse88/Microsoft-Rewards-Script/archive/refs/heads/CN.zip"
+REPO_URL="https://github.com/buse88/Micro-Rewards/archive/refs/heads/main.zip"
 DEPLOY_DIR="/opt/microsoft-rewards"
 
 echo "[INFO] 开始全自动部署..."
@@ -51,7 +51,7 @@ fi
 
 # 4. 检查现有镜像
 echo "[INFO] 检查现有Docker镜像..."
-if docker images | grep -q "microsoft-rewards"; then
+if docker images | grep -q "micro-rewards"; then
     echo "[INFO] 发现现有镜像，将使用现有镜像启动服务"
     USE_EXISTING_IMAGE=true
 else
@@ -67,8 +67,8 @@ if [ "$USE_EXISTING_IMAGE" = false ]; then
     cd /tmp
     wget -O microsoft-rewards.zip $REPO_URL
     unzip -q microsoft-rewards.zip
-    cp -r Microsoft-Rewards-Script-CN/* $DEPLOY_DIR/
-    rm -rf Microsoft-Rewards-Script-CN microsoft-rewards.zip
+    cp -r Micro-Rewards-main/* $DEPLOY_DIR/
+    rm -rf Micro-Rewards-main microsoft-rewards.zip
     cd $DEPLOY_DIR
 else
     echo "[INFO] 使用现有镜像，跳过下载项目文件"
@@ -128,14 +128,14 @@ cat > docker-compose.yml << 'EOF'
 version: '3.8'
 
 services:
-  microsoft-rewards-script:
-    image: microsoft-rewards-microsoft-rewards-script:latest
-    container_name: microsoft-rewards-script
+  micro-rewards:
+    image: micro-rewards:latest
+    container_name: micro-rewards
     restart: "no"
     volumes:
-      - ./src/accounts.json:/usr/src/microsoft-rewards-script/dist/accounts.json
-      - ./src/config.json:/usr/src/microsoft-rewards-script/dist/config.json
-      - ./src/browser/sessions:/usr/src/microsoft-rewards-script/dist/browser/sessions
+      - ./src/accounts.json:/usr/src/micro-rewards/dist/accounts.json
+      - ./src/config.json:/usr/src/micro-rewards/dist/config.json
+      - ./src/browser/sessions:/usr/src/micro-rewards/dist/browser/sessions
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai

@@ -6,7 +6,7 @@ LABEL version="v1.3.2"
 LABEL description="Microsoft Rewards Script with domestic sources"
 
 # Set the working directory in the container
-WORKDIR /usr/src/microsoft-rewards-script
+WORKDIR /usr/src/micro-rewards
 
 # 设置Playwright浏览器下载镜像源（加速下载）
 ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/

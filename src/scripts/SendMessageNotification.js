@@ -316,21 +316,44 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
     }
     
     // 生成消息
-    let message = `🤖 **Microsoft Rewards 积分报告**\n\n`;
+    let message = `**Microsoft Rewards 积分报告**\n\n`;
     message += `📧 **账户**: ${maskedEmail}\n`;
-    message += `⏰ **时间**: ${timeStr}\n`;
+    message += `⏰ **时间**: ${timeStr}\n\n`;
     message += regionInfo;
     
-    // 用户等级和积分信息
-    message += `🏆 **用户等级**: ${levelName}\n`;
-    message += `💰 **可用积分**: ${availablePoints.toLocaleString()}\n`;
-    message += `📈 **终身积分**: ${lifetimePoints.toLocaleString()}\n`;
-    message += `💸 **已兑换积分**: ${redeemedPoints.toLocaleString()}\n\n`;
+    // 任务执行结果
+    if (taskSummary) {
+        message += `🎯 **任务执行结果**\n`;
+        message += `• 开始积分: ${taskSummary.startPoints.toLocaleString()}\n`;
+        message += `• 结束积分: ${taskSummary.endPoints.toLocaleString()}\n`;
+        message += `• 本次获得: ${taskSummary.pointsGained} 积分\n`;
+        if (taskSummary.executionTime) {
+            message += `• 执行时间: ${Math.round(taskSummary.executionTime / 1000)}秒\n`;
+        }
+        if (taskSummary.dailyCheckInResult) {
+            const checkIn = taskSummary.dailyCheckInResult;
+            if (checkIn.success) {
+                message += `• 每日签到: ✅ 成功 (30积分)\n`;
+            } else {
+                message += `• 每日签到: ❌ ${checkIn.message}\n`;
+            }
+        }
+        message += '\n';
+    }
     
-    // 今日积分进度
-    message += `📊 **今日积分进度**\n`;
-    message += `📊 桌面搜索: ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}% (${pcSearch.pointProgress}/${pcSearch.pointProgressMax})\n`;
-    message += `📊 移动搜索: ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}% (${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax})\n`;
+    // 积分概览
+    message += `💰 **积分概览**\n`;
+    message += `• 可用积分: ${availablePoints.toLocaleString()}\n`;
+    message += `• 累计积分: ${lifetimePoints.toLocaleString()}\n`;
+    message += `• 已兑换积分: ${redeemedPoints.toLocaleString()}\n`;
+    message += `• 用户等级: ${levelName}\n\n`;
+    
+    // 今日积分统计
+    message += `📈 **今日积分统计**: ${todayPoints}/${todayPointsMax} 积分\n\n`;
+    
+    // 各项任务进度
+    message += `📊 桌面端搜索: ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}% (${pcSearch.pointProgress}/${pcSearch.pointProgressMax})\n`;
+    message += `📊 移动端搜索: ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}% (${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax})\n`;
     message += `📊 每日活动: ${generateProgressBar(dailyTasksPointsCompleted, dailyTasksPoints)} ${generatePercentage(dailyTasksPointsCompleted, dailyTasksPoints)}% (${dailyTasksPointsCompleted}/${dailyTasksPoints})\n`;
     message += `📊 更多活动: ${generateProgressBar(moreActivitiesPointsCompleted, moreActivitiesPoints)} ${generatePercentage(moreActivitiesPointsCompleted, moreActivitiesPoints)}% (${moreActivitiesPointsCompleted}/${moreActivitiesPoints})\n`;
     
@@ -348,11 +371,11 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
     const completedItems = [];
     const pendingItems = [];
     
-    if (pcSearch.pointProgress >= pcSearch.pointProgressMax && pcSearch.pointProgressMax > 0) completedItems.push('桌面搜索');
-    else if (pcSearch.pointProgressMax > 0) pendingItems.push('桌面搜索');
+    if (pcSearch.pointProgress >= pcSearch.pointProgressMax && pcSearch.pointProgressMax > 0) completedItems.push('桌面端搜索');
+    else if (pcSearch.pointProgressMax > 0) pendingItems.push('桌面端搜索');
     
-    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax && mobileSearch.pointProgressMax > 0) completedItems.push('移动搜索');
-    else if (mobileSearch.pointProgressMax > 0) pendingItems.push('移动搜索');
+    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax && mobileSearch.pointProgressMax > 0) completedItems.push('移动端搜索');
+    else if (mobileSearch.pointProgressMax > 0) pendingItems.push('移动端搜索');
     
     if (dailyTasksCompleted === dailyTasksTotal && dailyTasksTotal > 0) completedItems.push('每日活动');
     else if (dailyTasksTotal > 0) pendingItems.push('每日活动');
@@ -367,27 +390,29 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
     if (completedItems.length > 0) {
         message += `✅ **已完成**: ${completedItems.join(', ')}\n`;
     }
+    message += '---------------------------------------------------------------\n';
     if (pendingItems.length > 0) {
-        message += `⏳ **待完成**: ${pendingItems.join(', ')}\n`;
+        message += `❌ **待完成**: ${pendingItems.join(', ')}\n`;
+    } else {
+        message += `❌ **待完成**: \n`;
     }
-    message += '\n';
+    message += '---------------------------------------------------------------\n';
     
     // 每日活动明细
-    message += `📋 **每日活动**: ${dailyTasksTotal} 个活动\n`;
-    message += `🎯 总积分: ${dailyTasksPoints} ✅ 已完成: ${dailyTasksCompleted}/${dailyTasksTotal}\n`;
+    message += `📋 **每日活动**:\n`;
     
     todayTasks.forEach(task => {
         const status = task.complete ? '✅' : '❌';
         const points = task.pointProgressMax || 0;
         const title = task.title || '未知任务';
-        message += `${status} ${title} (${points}积分)\n`;
+        const date = timeStr.split(' ')[0];
+        const progress = `${task.pointProgress || points}/${points}`;
+        message += `${status} ${title} (${points}积分) - ${date} -  📊 进度: ${progress}\n`;
     });
-    message += '\n';
+    message += '---------------------------------------------------------------\n';
     
     // 更多活动明细
-    const activityCounterInfo = activityCounter ? `(基于活动计数器: ${moreActivitiesPointsCompleted}/${moreActivitiesPoints})` : `(手动统计: ${moreActivitiesPointsCompleted}/${moreActivitiesPoints})`;
-    message += `📋 **更多活动**: ${todayActivities.length} 个活动 ${activityCounterInfo}\n`;
-    message += `🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${todayActivitiesCompleted}/${todayActivities.length}\n`;
+    message += `📋 **更多活动**: ${todayActivities.length} 个活动--🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${todayActivitiesCompleted}/${todayActivities.length}\n`;
     
     todayActivities.forEach(activity => {
         const status = activity.complete ? '✅' : '❌';
@@ -397,24 +422,6 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
         const title = activity.title || '未知任务';
         message += `${status} ${title} (${points}积分) - ${date} -📊 进度: ${progress}\n`;
     });
-    
-    // 任务执行结果
-    if (taskSummary) {
-        message += '\n';
-        message += `🚀 **任务执行结果**\n`;
-        message += `📈 积分变化: ${taskSummary.startPoints} → ${taskSummary.endPoints} (+${taskSummary.pointsGained})\n`;
-        if (taskSummary.executionTime) {
-            message += `⏱️ 执行时间: ${Math.round(taskSummary.executionTime / 1000)}秒\n`;
-        }
-        if (taskSummary.dailyCheckInResult) {
-            const checkIn = taskSummary.dailyCheckInResult;
-            if (checkIn.success) {
-                message += `✅ 每日签到: ${checkIn.message}\n`;
-            } else {
-                message += `❌ 每日签到: ${checkIn.message}\n`;
-            }
-        }
-    }
     
     return message;
 }

@@ -14,20 +14,20 @@ export class DailyCheckIn extends Workers {
 
         this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', '开始每日签到')
         if (this.bot.config.enableDebugLog) {
-            console.log('[签到调试] accessToken:', accessToken)
+        console.log('[签到调试] accessToken:', accessToken)
         }
 
         try {
             // 恢复为单一地区签到逻辑
             let geoLocale = data.userProfile.attributes.country
             // 优先级：preferredCountry > 账号地区 > us
-            if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
-                geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
+                if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
+                    geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
                 if (this.bot.config.enableDebugLog) {
                     console.log('[签到调试] 使用preferredCountry配置的地区:', geoLocale)
                 }
-            } else if (geoLocale && geoLocale.length === 2) {
-                geoLocale = geoLocale.toLowerCase()
+                } else if (geoLocale && geoLocale.length === 2) {
+                    geoLocale = geoLocale.toLowerCase()
                 if (this.bot.config.enableDebugLog) {
                     console.log('[签到调试] 使用账号实际地区:', geoLocale)
                 }
@@ -38,7 +38,7 @@ export class DailyCheckIn extends Workers {
                 }
             }
             if (this.bot.config.enableDebugLog) {
-                console.log('[签到调试] geoLocale:', geoLocale)
+            console.log('[签到调试] geoLocale:', geoLocale)
             }
 
             // 只尝试一个地区签到

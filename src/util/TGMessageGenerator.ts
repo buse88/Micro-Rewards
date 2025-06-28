@@ -100,8 +100,8 @@ function generatePercentage(current: number, max: number): string {
 function escapeMarkdown(text: string): string {
     // 只转义真正的Markdown特殊字符，避免过度转义
     return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, (match) => {
-        // 不转义括号、点号等常见字符
-        if (match === '(' || match === ')' || match === '.' || match === '@') {
+        // 不转义括号、点号、方括号等常见字符
+        if (match === '(' || match === ')' || match === '.' || match === '@' || match === '[' || match === ']') {
             return match
         }
         return '\\' + match
@@ -286,31 +286,38 @@ export async function generateTGMessage(
     }
     
     // 构建消息
-    let message = `🤖 **微软积分机器人任务报告**\n\n`
-    message += `📅 **执行时间**: ${escapeMarkdown(timeStr)}\n`
-    message += `📧 **账户**: ${escapeMarkdown(maskedEmail)}\n\n`
+    let message = `**Microsoft Rewards 积分报告**\n\n`
+    message += `📧 **账户**: ${escapeMarkdown(maskedEmail)}\n`
+    message += `⏰ **时间**: ${escapeMarkdown(timeStr)}\n\n`
     
     message += regionInfo
     
-    // 积分信息
-    message += `💰 **积分信息**\n`
-    message += `• 可用积分: **${availablePoints.toLocaleString()}**\n`
-    message += `• 总积分: **${lifetimePoints.toLocaleString()}**\n`
-    if (redeemedPoints > 0) {
-        message += `• 已兑换: **${redeemedPoints.toLocaleString()}**\n`
+    // 任务执行结果
+    if (taskSummary) {
+        message += `🎯 **任务执行结果**\n`
+        message += `• 开始积分: ${taskSummary.startPoints.toLocaleString()}\n`
+        message += `• 结束积分: ${taskSummary.endPoints.toLocaleString()}\n`
+        message += `• 本次获得: ${taskSummary.pointsGained} 积分\n`
+        if (taskSummary.executionTime) {
+            message += `• 执行时间: ${Math.round(taskSummary.executionTime / 1000)}秒\n`
+        }
+        if (taskSummary.dailyCheckInResult) {
+            const checkIn = taskSummary.dailyCheckInResult
+            if (checkIn.success) {
+                message += `• 每日签到: ✅ 成功 (30积分)\n`
+            } else {
+                message += `• 每日签到: ❌ ${escapeMarkdown(checkIn.message)}\n`
+            }
+        }
+        message += '\n'
     }
-    if (levelName) {
-        message += `• 等级: **${escapeMarkdown(levelName)}**\n`
-    }
-    message += `\n`
     
-    // 今日积分统计（新增详细统计）
-    message += `📈 **今日积分统计**\n`
-    message += `• PC搜索: **${pcSearch.pointProgress}**/${pcSearch.pointProgressMax} 积分\n`
-    message += `• 移动搜索: **${mobileSearch.pointProgress}**/${mobileSearch.pointProgressMax} 积分\n`
-    message += `• 每日任务: **${dailyTasksCompleted > 0 ? dailyTasksPoints : 0}**/${dailyTasksPoints} 积分\n`
-    message += `• 更多活动: **${moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0}**/${moreActivitiesPoints} 积分\n`
-    message += `• 阅读赚积分: **${readProgress ? readProgress.progress : 0}**/${readProgress ? readProgress.max : 0} 积分\n`
+    // 积分概览
+    message += `💰 **积分概览**\n`
+    message += `• 可用积分: ${availablePoints.toLocaleString()}\n`
+    message += `• 累计积分: ${lifetimePoints.toLocaleString()}\n`
+    message += `• 已兑换积分: ${redeemedPoints.toLocaleString()}\n`
+    message += `• 用户等级: ${levelName}\n\n`
     
     // 计算今日总计
     const todayTotalPoints = pcSearch.pointProgress + 
@@ -325,50 +332,80 @@ export async function generateTGMessage(
                           moreActivitiesPoints + 
                           (readProgress ? readProgress.max : 0)
     
-    message += `• **今日总计**: **${todayTotalPoints}**/${todayMaxPoints} 积分\n`
-    message += `• 完成进度: ${generateProgressBar(todayTotalPoints, todayMaxPoints)} ${generatePercentage(todayTotalPoints, todayMaxPoints)}\n\n`
+    // 今日积分统计
+    message += `📈 **今日积分统计**: ${todayTotalPoints}/${todayMaxPoints} 积分\n\n`
     
-    // 搜索积分
-    message += `🔍 **搜索积分**\n`
-    message += `• PC搜索: ${pcSearch.pointProgress}/${pcSearch.pointProgressMax} ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}\n`
-    message += `• 移动搜索: ${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax} ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}\n\n`
-    
-    // 每日任务
-    message += `📋 **每日任务** (${dailyTasksCompleted}/${dailyTasksTotal})\n`
-    message += `• 完成进度: ${generateProgressBar(dailyTasksCompleted, dailyTasksTotal)} ${generatePercentage(dailyTasksCompleted, dailyTasksTotal)}\n`
-    message += `• 积分奖励: **${dailyTasksPoints}**\n\n`
-    
-    // 更多活动
-    message += `🎯 **更多活动** (${moreActivitiesCompleted}/${moreActivitiesTotal})\n`
-    message += `• 完成进度: ${generateProgressBar(moreActivitiesCompleted, moreActivitiesTotal)} ${generatePercentage(moreActivitiesCompleted, moreActivitiesTotal)}\n`
-    message += `• 积分奖励: **${moreActivitiesPoints}**\n\n`
+    // 各项任务进度
+    message += `📊 桌面端搜索: ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}% (${pcSearch.pointProgress}/${pcSearch.pointProgressMax})\n`
+    message += `📊 移动端搜索: ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}% (${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax})\n`
+    message += `📊 每日活动: ${generateProgressBar(dailyTasksCompleted > 0 ? dailyTasksPoints : 0, dailyTasksPoints)} ${generatePercentage(dailyTasksCompleted > 0 ? dailyTasksPoints : 0, dailyTasksPoints)}% (${dailyTasksCompleted > 0 ? dailyTasksPoints : 0}/${dailyTasksPoints})\n`
+    message += `📊 更多活动: ${generateProgressBar(moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0, moreActivitiesPoints)} ${generatePercentage(moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0, moreActivitiesPoints)}% (${moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0}/${moreActivitiesPoints})\n`
     
     // 阅读赚积分
     if (readProgress) {
-        message += `📖 **阅读赚积分**\n`
-        message += `• 进度: ${readProgress.progress}/${readProgress.max} ${generateProgressBar(readProgress.progress, readProgress.max)} ${generatePercentage(readProgress.progress, readProgress.max)}\n`
-        message += `• 剩余: **${readProgress.max - readProgress.progress}** 积分\n\n`
+        message += `📊 阅读赚积分: ${generateProgressBar(readProgress.progress, readProgress.max)} ${generatePercentage(readProgress.progress, readProgress.max)}% (${readProgress.progress}/${readProgress.max})\n`
+    } else {
+        message += `📊 阅读赚积分: x/x 获取失败\n`
     }
     
-    // 任务执行结果
-    if (taskSummary) {
-        message += `📊 **本次执行结果**\n`
-        message += `• 开始积分: **${taskSummary.startPoints}**\n`
-        message += `• 结束积分: **${taskSummary.endPoints}**\n`
-        message += `• 获得积分: **${taskSummary.pointsGained}**\n`
-        message += `• 执行时间: **${Math.round(taskSummary.executionTime / 1000)}秒**\n`
-        
-        if (taskSummary.dailyCheckInResult) {
-            if (taskSummary.dailyCheckInResult.success) {
-                message += `• 每日签到: ✅ **${taskSummary.dailyCheckInResult.pointsGained}** 积分\n`
-            } else {
-                message += `• 每日签到: ❌ ${escapeMarkdown(taskSummary.dailyCheckInResult.message)}\n`
-            }
-        }
-        message += `\n`
-    }
+    // 今日总计
+    message += `📊 今日总计: ${generateProgressBar(todayTotalPoints, todayMaxPoints)} ${generatePercentage(todayTotalPoints, todayMaxPoints)}% (${todayTotalPoints}/${todayMaxPoints})\n\n`
     
-    message += `🎉 **任务完成！** 继续保持每日签到，积少成多！`
+    // 已完成和待完成项目
+    const completedItems = []
+    const pendingItems = []
+    
+    if (pcSearch.pointProgress >= pcSearch.pointProgressMax && pcSearch.pointProgressMax > 0) completedItems.push('桌面端搜索')
+    else if (pcSearch.pointProgressMax > 0) pendingItems.push('桌面端搜索')
+    
+    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax && mobileSearch.pointProgressMax > 0) completedItems.push('移动端搜索')
+    else if (mobileSearch.pointProgressMax > 0) pendingItems.push('移动端搜索')
+    
+    if (dailyTasksCompleted === dailyTasksTotal && dailyTasksTotal > 0) completedItems.push('每日活动')
+    else if (dailyTasksTotal > 0) pendingItems.push('每日活动')
+    
+    if (moreActivitiesCompleted === moreActivitiesTotal && moreActivitiesTotal > 0) completedItems.push('更多活动')
+    else if (moreActivitiesTotal > 0) pendingItems.push('更多活动')
+    
+    if (readProgress && readProgress.progress >= readProgress.max && readProgress.max > 0) completedItems.push('阅读赚积分')
+    else if (readProgress && readProgress.max > 0) pendingItems.push('阅读赚积分')
+    
+    // 任务完成状态
+    if (completedItems.length > 0) {
+        message += `✅ **已完成**: ${completedItems.join(', ')}\n`
+    }
+    message += '---------------------------------------------------------------\n'
+    if (pendingItems.length > 0) {
+        message += `❌ **待完成**: ${pendingItems.join(', ')}\n`
+    } else {
+        message += `❌ **待完成**: \n`
+    }
+    message += '---------------------------------------------------------------\n'
+    
+    // 每日活动明细
+    message += `📋 **每日活动**:\n`
+    
+    todayTasks.forEach((task: any) => {
+        const status = task.complete ? '✅' : '❌'
+        const points = task.pointProgressMax || 0
+        const title = task.title || '未知任务'
+        const date = timeStr.split(' ')[0]
+        const progress = `${task.pointProgress || points}/${points}`
+        message += `${status} ${escapeMarkdown(title)} (${points}积分) - ${date} -  📊 进度: ${progress}\n`
+    })
+    message += '---------------------------------------------------------------\n'
+    
+    // 更多活动明细
+    message += `📋 **更多活动**: ${moreActivitiesTotal} 个活动--🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${moreActivitiesCompleted}/${moreActivitiesTotal}\n`
+    
+    allMoreActivities.forEach((activity: any) => {
+        const status = activity.complete ? '✅' : '❌'
+        const points = activity.pointProgressMax || 0
+        const date = activity.date || timeStr.split(' ')[0]
+        const progress = `${activity.pointProgress || points}/${points}`
+        const title = activity.title || '未知任务'
+        message += `${status} ${escapeMarkdown(title)} (${points}积分) - ${date} -📊 进度: ${progress}\n`
+    })
     
     return message
-} 
+}

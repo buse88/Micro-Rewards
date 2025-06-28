@@ -329,3 +329,29 @@ docker-compose up -d --build
 
 2025年6月28日 修复了 更多活动 没有区域请求头导致 获取的us地区的任务信息
             
+### 其它重要参数说明（本项目扩展&优化）
+
+| 参数名 | 英文说明 | 中文说明 | 默认值 |
+|--------|----------|----------|--------|
+| enableDebugLog | Enable debug log output | 是否输出详细调试日志 | false |
+| searchSettings.preferredCountry | Preferred country code for requests (e.g. "cn", "us") | 请求头国家代码，覆盖自动识别 | cn |
+| searchSettings.rewardsLanguage | Rewards API language (e.g. zh-CN, en-US) | 积分API请求语言 | zh-CN |
+| searchSettings.useDomesticHotAPIs | Use domestic (CN) hot search APIs | 是否使用国内热搜API | true |
+| searchSettings.retryMobileSearchAmount | Retry times for mobile search | 移动端搜索重试次数 | 1 |
+| searchSettings.retryDesktopSearchAmount | Retry times for desktop search | 桌面端搜索重试次数 | 1 |
+| searchSettings.retryDelay | Delay between retries | 重试间隔 | 5s |
+| networkSettings.maxRetries | Max network retry times | 网络最大重试次数 | 5 |
+| networkSettings.retryDelay | Network retry delay (ms) | 网络重试延迟（毫秒） | 5000 |
+| networkSettings.connectionTimeout | Connection timeout (ms) | 连接超时时间（毫秒） | 15000 |
+| networkSettings.pageLoadTimeout | Page load timeout (ms) | 页面加载超时时间（毫秒） | 30000 |
+| browserSettings.maxConcurrentPages | Max concurrent browser pages | 最大并发浏览器页面数 | 2 |
+| browserSettings.pageTimeout | Single page timeout (ms) | 单页面超时时间（毫秒） | 15000 |
+| browserSettings.memoryLimit | Browser memory limit | 浏览器内存限制 | 256MB |
+| browserSettings.enableGpu | Enable GPU acceleration | 是否启用GPU加速 | false |
+| browserSettings.disableImages | Disable image loading | 禁用图片加载 | true |
+| browserSettings.disableJavaScript | Disable JavaScript | 禁用JS | false |
+| browserSettings.disableCss | Disable CSS | 禁用CSS | false |
+
+> 说明：如需详细嵌套结构和示例，请参考 `src/config.json` 文件内容。
+
+            

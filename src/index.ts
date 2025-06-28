@@ -1,5 +1,7 @@
 import cluster from 'cluster'
 import { Page } from 'rebrowser-playwright'
+import path from 'path'
+import fs from 'fs'
 
 import Browser from './browser/Browser'
 import BrowserFunc from './browser/BrowserFunc'
@@ -14,9 +16,11 @@ import { Workers } from './functions/Workers'
 import Activities from './functions/Activities'
 
 import { Account } from './interface/Account'
-import Axios from './util/Axios'
+import AxiosClient from './util/Axios'
 import { NotificationManager } from './util/NotificationManager'
 
+// 添加TG消息生成功能
+import { generateTGMessage } from './util/TGMessageGenerator'
 
 // Main bot class
 export class MicrosoftRewardsBot {
@@ -43,7 +47,7 @@ export class MicrosoftRewardsBot {
     private notificationManager: NotificationManager = new NotificationManager()
 
     //@ts-expect-error Will be initialized later
-    public axios: Axios
+    public axios: AxiosClient
 
     constructor(isMobile: boolean) {
         this.isMobile = isMobile
@@ -130,7 +134,7 @@ export class MicrosoftRewardsBot {
                 let mobileResult: any = null
                 
                 // 每个账号都使用独立的浏览器实例，确保会话隔离
-            if (this.config.parallel) {
+                if (this.config.parallel) {
                     const [desktop, mobile] = await Promise.all([
                         this.runAccountTasks(account, false), // Desktop
                         this.runAccountTasks(account, true)   // Mobile
@@ -147,9 +151,13 @@ export class MicrosoftRewardsBot {
                 if (desktopResult?.success && mobileResult?.success) {
                     successfulAccounts++
                     log('main', 'MAIN-WORKER', `账户 ${account.email} 的所有任务已完成`, 'log', 'green')
-                    console.log('[DEBUG] mobileResult.dashboardData:', !!mobileResult.dashboardData, mobileResult.dashboardData)
+                    if (this.config.enableDebugLog) {
+                        console.log('[debug] mobileResult.dashboardData:', !!mobileResult.dashboardData, mobileResult.dashboardData)
+                    }
                     if (!this.config.onlyReport && mobileResult.dashboardData) {
-                        console.log('[DEBUG] 即将调用API脚本发送TG积分报告', account.email)
+                        if (this.config.enableDebugLog) {
+                            console.log('[debug] 即将生成TG积分报告', account.email)
+                        }
                         
                         // 构建任务完成信息
                         const taskSummary = {
@@ -161,40 +169,65 @@ export class MicrosoftRewardsBot {
                             isMobile: false // 桌面端和移动端都执行了
                         }
                         
-                        // 获取实际执行地区信息
-                        const actualRegions = this.getActualRegions(mobileResult.dashboardData)
-                        
-                        // 调用API测试脚本发送TG通知
+                        // 直接使用已获取的dashboard数据生成TG消息
                         try {
-                            const { spawn } = require('child_process');
-                            const apiScript = spawn('node', ['src/scripts/SendMessageNotification.js'], {
-                                stdio: 'pipe',
-                                cwd: process.cwd(),
-                                env: {
-                                    ...process.env,
-                                    TASK_SUMMARY: JSON.stringify(taskSummary),
-                                    ACCOUNT_EMAIL: account.email,
-                                    ACTUAL_REGIONS: JSON.stringify(actualRegions)
+                            // 获取实际执行任务的地区信息
+                            const actualRegions = this.getActualRegions(mobileResult.dashboardData)
+                            if (this.config.enableDebugLog) {
+                                console.log('[debug] 实际执行任务的地区:', actualRegions)
+                            }
+                            
+                            // 将地区信息添加到dashboard数据中，供TG消息生成器使用
+                            const dashboardWithRegions = {
+                                ...mobileResult.dashboardData,
+                                actualRegions: actualRegions,
+                                config: {
+                                    searchSettings: {
+                                        preferredCountry: this.config.searchSettings.preferredCountry,
+                                        useGeoLocaleQueries: this.config.searchSettings.useGeoLocaleQueries
+                                    }
                                 }
-                            });
+                            }
                             
-                            apiScript.stdout.on('data', (data: Buffer) => {
-                                console.log(`[API-Script] ${data.toString().trim()}`);
-                            });
-                            
-                            apiScript.stderr.on('data', (data: Buffer) => {
-                                console.error(`[API-Script-Error] ${data.toString().trim()}`);
-                            });
-                            
-                            apiScript.on('close', (code: number) => {
-                                if (code === 0) {
-                                    console.log('[DEBUG] API脚本执行成功，TG积分报告已发送');
-                                } else {
-                                    console.error(`[DEBUG] API脚本执行失败，退出码: ${code}`);
+                            // 获取accessToken用于阅读积分查询
+                            let accessToken = null
+                            try {
+                                const sessionDir = path.join(process.cwd(), 'dist', 'browser', this.config.sessionPath, account.email)
+                                const mobileAccessTokenPath = path.join(sessionDir, 'mobile_accessToken.txt')
+                                if (fs.existsSync(mobileAccessTokenPath)) {
+                                    accessToken = fs.readFileSync(mobileAccessTokenPath, 'utf8').trim()
                                 }
-                            });
+                            } catch (error: any) {
+                                if (this.config.enableDebugLog) {
+                                    console.log('[debug] 获取accessToken失败:', error.message)
+                                }
+                            }
+                            
+                            // 生成TG消息
+                            if (this.config.enableDebugLog) {
+                                console.log('[debug] 准备生成TG消息，传入的dashboard数据:')
+                                console.log('[debug] - mobileResult.dashboardData.ruid:', mobileResult.dashboardData?.ruid)
+                                console.log('[debug] - mobileResult.dashboardData.userProfile?.attributes?.ruid:', mobileResult.dashboardData?.userProfile?.attributes?.ruid)
+                                console.log('[debug] - mobileResult.dashboardData.userProfile?.attributes?.country:', mobileResult.dashboardData?.userProfile?.attributes?.country)
+                            }
+                            
+                            const tgMessage = await generateTGMessage(account.email, dashboardWithRegions, taskSummary, accessToken, this.config)
+                            
+                            // 发送TG通知
+                            if (this.config.webhook?.telegram?.enabled) {
+                                await this.notificationManager.sendTelegramMessage(tgMessage)
+                                if (this.config.enableDebugLog) {
+                                    console.log('[debug] TG积分报告已发送')
+                                }
+                            } else {
+                                if (this.config.enableDebugLog) {
+                                    console.log('[debug] Telegram未启用，跳过发送')
+                                }
+                            }
                         } catch (error) {
-                            console.error('[DEBUG] 调用API脚本失败:', error);
+                            if (this.config.enableDebugLog) {
+                                console.error('[debug] 生成TG消息失败:', error)
+                            }
                         }
                     }
                     
@@ -251,152 +284,107 @@ export class MicrosoftRewardsBot {
     // 统一的账户任务执行方法
     async runAccountTasks(account: Account, isMobile: boolean) {
         this.isMobile = isMobile
-        this.axios = new Axios(account.proxy)
+        this.axios = new AxiosClient(account.proxy, this.config.enableDebugLog)
         
-        // 为每个账号创建独立的浏览器实例，确保会话隔离
-        const browser = await this.browserFactory.createBrowser(account.proxy, account.email)
-        this.homePage = await browser.newPage()
-
+        const startTime = Date.now()
         let startPoints = 0
         let endPoints = 0
-        const startTime = Date.now()
-        const taskResults = {
-            desktopSearch: false,
-            mobileSearch: false,
-            dailySet: false,
-            activities: false,
-            readToEarn: false
-        }
         let readToEarnResult = { articlesRead: 0, totalPointsGained: 0 }
-        let mobileResult: { articlesRead: number, totalPointsGained: number, dailyCheckInResult?: { success: boolean, pointsGained: number, message: string }, dashboardData?: any } | undefined
+        let mobileResult: any = null
+        let browser: any = null
 
         try {
-            log(this.isMobile, 'MAIN', '正在启动浏览器')
+            // 为每个账号创建独立的浏览器实例，确保会话隔离
+            browser = await this.browserFactory.createBrowser(account.proxy, account.email)
+            
+            // 检查浏览器上下文是否有效
+            if (!browser) {
+                throw new Error('Browser context is invalid')
+            }
+            
+            this.homePage = await browser.newPage()
 
             // 登录
-        await this.login.login(this.homePage, account.email, account.password)
+            await this.login.login(this.homePage, account.email, account.password)
             
             // 登录成功通知通过原有日志方式
             log(this.isMobile, 'MAIN', `账户 ${account.email} 登录成功`)
-            
+
+            // 获取初始积分
+            startPoints = await this.browser.func.getCurrentPoints()
+
+            // 修改：使用API方法获取dashboard数据，而不是从浏览器页面获取
+            let data: any
+            try {
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 尝试使用API方法获取dashboard数据')
+                }
+                data = await this.browser.func.getDashboardData()
+            } catch (error) {
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 获取dashboard数据失败:', error)
+                }
+                throw error
+            }
+
+            if (!data || !data.userStatus) {
+                log(this.isMobile, 'MAIN-ERROR', `账户 ${account.email} 获取用户数据失败`, 'error')
+                return { success: false, error: 'Failed to get user data' }
+            }
+
+            // 获取实际执行地区信息
+            const regions = this.getActualRegions(data)
+            if (this.config.enableDebugLog) {
+                console.log('[debug] 实际执行地区:', regions)
+            }
+
+            // 任务结果跟踪
+            const taskResults = {
+                desktopSearch: false,
+                mobileSearch: false,
+                dailySet: false,
+                activities: false,
+                readToEarn: false,
+                dailyCheckIn: false
+            }
+
             if (isMobile) {
-                this.accessToken = await this.login.getMobileAccessToken(this.homePage, account.email)
-                // 保存移动端accessToken到文件，供TG通知脚本使用
-                const fs = require('fs')
-                const path = require('path')
-                const sessionDir = path.join(__dirname, '..', 'dist', 'browser', this.config.sessionPath, account.email)
-                const mobileAccessTokenPath = path.join(sessionDir, 'mobile_accessToken.txt')
+                mobileResult = await this.runMobileTasks(browser, data)
+                readToEarnResult = { articlesRead: mobileResult.articlesRead, totalPointsGained: mobileResult.totalPointsGained }
+                taskResults.mobileSearch = true
                 
-                // 确保目录存在
-                if (!fs.existsSync(sessionDir)) {
-                    fs.mkdirSync(sessionDir, { recursive: true })
+                // 处理每日签到结果
+                if (mobileResult.dailyCheckInResult) {
+                    if (mobileResult.dailyCheckInResult.success) {
+                        log(this.isMobile, 'MAIN-CHECKIN', `每日签到成功: ${mobileResult.dailyCheckInResult.message}`)
+                    } else {
+                        log(this.isMobile, 'MAIN-CHECKIN', `每日签到: ${mobileResult.dailyCheckInResult.message}`)
+                    }
                 }
-                
-                // 保存accessToken
-                fs.writeFileSync(mobileAccessTokenPath, this.accessToken)
-                log(this.isMobile, 'MAIN', `移动端accessToken已保存到: ${mobileAccessTokenPath}`)
+            } else {
+                await this.runDesktopTasks(browser, data)
+                taskResults.desktopSearch = true
+                taskResults.dailySet = true
+                taskResults.activities = true
+                taskResults.readToEarn = true
             }
 
-        await this.browser.func.goHome(this.homePage)
-        const data = await this.browser.func.getDashboardData()
-        startPoints = data.userStatus.availablePoints
+            // 所有任务完成后再获取一次积分
+            endPoints = await this.browser.func.getCurrentPoints()
+            log(this.isMobile, 'MAIN-POINTS', `本次获得积分: ${endPoints - startPoints}`)
 
-        // 新增：只获取积分信息并发送TG，不执行任务
-        if (this.config.onlyReport) {
-            // 强制用移动端accessToken
-            this.accessToken = await this.login.getMobileAccessToken(this.homePage, account.email)
-            
-            // 保存移动端accessToken到文件，供TG通知脚本使用
-            const fs = require('fs')
-            const path = require('path')
-            const sessionDir = path.join(__dirname, '..', 'dist', 'browser', this.config.sessionPath, account.email)
-            const mobileAccessTokenPath = path.join(sessionDir, 'mobile_accessToken.txt')
-            
-            // 确保目录存在
-            if (!fs.existsSync(sessionDir)) {
-                fs.mkdirSync(sessionDir, { recursive: true })
-            }
-            
-            // 保存accessToken
-            fs.writeFileSync(mobileAccessTokenPath, this.accessToken)
-            log(this.isMobile, 'MAIN', `移动端accessToken已保存到: ${mobileAccessTokenPath}`)
-            
-            await this.browser.func.goHome(this.homePage)
-            const data = await this.browser.func.getDashboardData()
-            startPoints = data.userStatus.availablePoints
-
-            // 自动适配地区
-            const actualRegions = this.getActualRegions(data)
-
-            await this.notificationManager.sendCompleteTaskNotification(
-                account.email,
-                this.accessToken,
-                0,
-                undefined,
-                actualRegions.readRegion, // 用自动适配的地区
-                data,
-                {
-                    startPoints: startPoints,
-                    endPoints: startPoints, // 只报告模式下结束积分等于开始积分
-                    pointsGained: 0,
-                    isMobile: true // 强制标记为移动端
-                },
-                actualRegions
-            )
-            await this.browser.func.closeBrowser(browser, account.email)
+            // 返回任务结果，不在这里发送通知
             return {
                 success: true,
-                dashboardData: data
+                taskResults: taskResults,
+                executionTime: Date.now() - startTime,
+                pointsGained: endPoints - startPoints,
+                startPoints: startPoints,
+                endPoints: endPoints,
+                readToEarnResult: readToEarnResult,
+                dailyCheckInResult: isMobile ? mobileResult?.dailyCheckInResult : undefined,
+                dashboardData: isMobile ? mobileResult?.dashboardData : undefined
             }
-        }
-
-        // 修正：runOnZeroPoints为false且无可获得积分时，也返回dashboardData
-        if (!this.config.runOnZeroPoints && this.pointsCanCollect === 0) {
-            log(this.isMobile, 'MAIN', '没有可获得的积分且"runOnZeroPoints"设置为"false"，跳过任务执行，但继续积分统计和推送！', 'log', 'yellow')
-            await this.browser.func.closeBrowser(browser, account.email)
-            return {
-                success: true,
-                dashboardData: data
-            }
-        }
-
-        if (isMobile) {
-            mobileResult = await this.runMobileTasks(browser, data)
-            readToEarnResult = { articlesRead: mobileResult.articlesRead, totalPointsGained: mobileResult.totalPointsGained }
-            taskResults.mobileSearch = true
-            
-            // 处理每日签到结果
-            if (mobileResult.dailyCheckInResult) {
-                if (mobileResult.dailyCheckInResult.success) {
-                    log(this.isMobile, 'MAIN-CHECKIN', `每日签到成功: ${mobileResult.dailyCheckInResult.message}`)
-                } else {
-                    log(this.isMobile, 'MAIN-CHECKIN', `每日签到: ${mobileResult.dailyCheckInResult.message}`)
-                }
-            }
-        } else {
-            await this.runDesktopTasks(browser, data)
-            taskResults.desktopSearch = true
-            taskResults.dailySet = true
-            taskResults.activities = true
-            taskResults.readToEarn = true
-        }
-
-        // 所有任务完成后再获取一次积分
-        endPoints = await this.browser.func.getCurrentPoints()
-        log(this.isMobile, 'MAIN-POINTS', `本次获得积分: ${endPoints - startPoints}`)
-
-        // 返回任务结果，不在这里发送通知
-        return {
-            success: true,
-            taskResults: taskResults,
-            executionTime: Date.now() - startTime,
-            pointsGained: endPoints - startPoints,
-            startPoints: startPoints,
-            endPoints: endPoints,
-            readToEarnResult: readToEarnResult,
-            dailyCheckInResult: isMobile ? mobileResult?.dailyCheckInResult : undefined,
-            dashboardData: isMobile ? mobileResult?.dashboardData : undefined
-        }
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error)
@@ -411,8 +399,12 @@ export class MicrosoftRewardsBot {
             }
         } finally {
             // 确保浏览器被关闭，释放资源
-            if (!this.config.onlyReport) {
-                await this.browser.func.closeBrowser(browser, account.email)
+            if (!this.config.onlyReport && browser) {
+                try {
+                    await this.browser.func.closeBrowser(browser, account.email)
+                } catch (closeError) {
+                    log(this.isMobile, 'MAIN-ERROR', `关闭浏览器时出错: ${closeError}`, 'error')
+                }
             }
         }
     }
@@ -425,20 +417,28 @@ export class MicrosoftRewardsBot {
     } {
         const accountCountry = data.userProfile?.attributes?.country || 'us'
         
-        // 使用与各功能相同的地区选择逻辑
+        // 使用与各功能相同的地区选择逻辑 - 修改优先级逻辑
         let searchRegion = 'us'
         let checkInRegion = 'us'
         let readRegion = 'us'
         
-        if (this.config.searchSettings.useGeoLocaleQueries) {
-            if (this.config.searchSettings.preferredCountry && this.config.searchSettings.preferredCountry.length === 2) {
-                searchRegion = this.config.searchSettings.preferredCountry.toLowerCase()
-                checkInRegion = this.config.searchSettings.preferredCountry.toLowerCase()
-                readRegion = this.config.searchSettings.preferredCountry.toLowerCase()
-            } else if (accountCountry && accountCountry.length === 2) {
+        // 1. 优先检查 preferredCountry
+        if (this.config.searchSettings.preferredCountry && this.config.searchSettings.preferredCountry.length === 2) {
+            searchRegion = this.config.searchSettings.preferredCountry.toLowerCase()
+            checkInRegion = this.config.searchSettings.preferredCountry.toLowerCase()
+            readRegion = this.config.searchSettings.preferredCountry.toLowerCase()
+            if (this.config.enableDebugLog) {
+                console.log('[debug] 使用preferredCountry配置的地区:', searchRegion)
+            }
+        } else if (this.config.searchSettings.useGeoLocaleQueries) {
+            // 2. 只有在 preferredCountry 为空时才检查 useGeoLocaleQueries
+            if (accountCountry && accountCountry.length === 2) {
                 searchRegion = accountCountry.toLowerCase()
                 checkInRegion = accountCountry.toLowerCase()
                 readRegion = accountCountry.toLowerCase()
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 使用useGeoLocaleQueries配置的地区:', searchRegion)
+                }
             }
         }
         
@@ -493,6 +493,22 @@ export class MicrosoftRewardsBot {
 
     // 移动端任务
     async runMobileTasks(browser: any, data: any): Promise<{ articlesRead: number, totalPointsGained: number, dailyCheckInResult?: { success: boolean, pointsGained: number, message: string }, dashboardData?: any }> {
+        // 获取移动端accessToken
+        try {
+            if (this.config.enableDebugLog) {
+                console.log('[debug] 开始获取移动端accessToken...')
+            }
+            this.accessToken = await this.login.getMobileAccessToken(this.homePage, data.userProfile?.attributes?.email || '')
+            if (this.config.enableDebugLog) {
+                console.log('[debug] 移动端accessToken获取成功:', this.accessToken ? '已获取' : '获取失败')
+            }
+        } catch (error) {
+            if (this.config.enableDebugLog) {
+                console.log('[debug] 获取移动端accessToken失败:', error)
+            }
+            this.accessToken = ''
+        }
+
         const browserEnarablePoints = await this.browser.func.getBrowserEarnablePoints()
         const appEarnablePoints = await this.browser.func.getAppEarnablePoints(this.accessToken)
 

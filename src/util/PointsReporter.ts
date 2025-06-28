@@ -78,13 +78,13 @@ export class PointsReporter {
      */
     async getPointsInfo(accessToken?: string): Promise<PointsInfo | null> {
         try {
-            // 获取用户信息 - 使用CN地区的接口
+            // 获取用户信息 - 使用动态地区设置
             const userInfoRequest: AxiosRequestConfig = {
                 url: 'https://rewards.bing.com/api/getuserinfo?type=1',
                 method: 'GET',
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Accept-Language': this.getAcceptLanguage(),
                     'Accept': 'application/json, text/plain, */*'
                 }
             }
@@ -206,7 +206,9 @@ export class PointsReporter {
                         // 使用offerId或title作为去重键
                         const uniqueKey = task.offerId || task.title || task.name || ''
                         if (dailySetSeen.has(uniqueKey)) {
-                            console.log(`[DEBUG] 每日任务集去重: 跳过重复任务 ${uniqueKey}`)
+                            if (this.config?.enableDebugLog) {
+                                console.log(`[debug] 每日任务集去重: 跳过重复任务 ${uniqueKey}`)
+                            }
                             continue
                         }
                         dailySetSeen.add(uniqueKey)
@@ -235,7 +237,29 @@ export class PointsReporter {
             }
 
             // 解析更多促销活动（不再混入每日任务集）- 改进去重逻辑
-            if (userData.morePromotionsWithoutPromotionalItems && Array.isArray(userData.morePromotionsWithoutPromotionalItems)) {
+            const morePromotions = userData.morePromotions || []
+            const morePromotionsWithoutPromotionalItems = userData.morePromotionsWithoutPromotionalItems || []
+            
+            // 合并两个字段的活动，并去重（以offerId为唯一标识）
+            const allMoreActivities = new Map()
+            
+            // 先添加morePromotionsWithoutPromotionalItems（优先级更高）
+            morePromotionsWithoutPromotionalItems.forEach((activity: any) => {
+                const offerId = activity.offerId || activity.name
+                if (offerId) {
+                    allMoreActivities.set(offerId, activity)
+                }
+            })
+            
+            // 再添加morePromotions中不重复的活动
+            morePromotions.forEach((activity: any) => {
+                const offerId = activity.offerId || activity.name
+                if (offerId && !allMoreActivities.has(offerId)) {
+                    allMoreActivities.set(offerId, activity)
+                }
+            })
+            
+            if (allMoreActivities.size > 0) {
                 const morePromotionsTasks: Array<{
                     name: string
                     points: number
@@ -272,39 +296,37 @@ export class PointsReporter {
                 // 更好的方法：使用UTC时间来确定星期，避免时区问题
                 const utcNow = new Date()
                 const utcWeekday = utcNow.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
-                
                 // 使用UTC时间作为主要判断依据
                 todayWeekday = utcWeekday
                 
-                // 先按星期筛选，再按标题分组
-                for (const promotion of userData.morePromotionsWithoutPromotionalItems) {
-                    const nameStr = promotion.name || promotion.offerId || '';
-                    const parts = nameStr.split('_');
-                    const lastPart = parts[parts.length - 1].toLowerCase();
-                    const todayWeekdayLower = todayWeekday.toLowerCase();
-                    
-                    if (promotion.title === 'Do you know the answer?') {
-                    }
-                    
-                    // 按星期筛选
-                    if (lastPart !== todayWeekdayLower) continue;
-                    
-                    const promotionPoints = promotion.pointProgressMax || 0
+                // 处理所有活动，按标题分组
+                allMoreActivities.forEach((promotion: any) => {
+                    const title = promotion.title || promotion.name || '未知任务'
+                    const points = promotion.pointProgressMax || 0
                     const isCompleted = promotion.complete || false
-                    const promotionName = promotion.title || promotion.name || '未知任务'
+                    const offerId = promotion.offerId || promotion.name || ''
+                    const id = promotion.id || ''
                     
-                    // 按标题分组
-                    if (!titleGroups.has(promotionName)) {
-                        titleGroups.set(promotionName, [])
+                    // 检查是否是当天的活动
+                    const nameStr = promotion.name || promotion.offerId || ''
+                    const parts = nameStr.split('_')
+                    const lastPart = parts[parts.length - 1].toLowerCase()
+                    const isTodayActivity = lastPart === todayWeekday.toLowerCase()
+                    
+                    // 只处理当天的活动
+                    if (isTodayActivity) {
+                        if (!titleGroups.has(title)) {
+                            titleGroups.set(title, [])
                     }
-                    titleGroups.get(promotionName)!.push({
+                        titleGroups.get(title)!.push({
                         promotion,
-                        points: promotionPoints,
+                            points,
                         isCompleted,
-                        offerId: promotion.offerId,
-                        id: promotion.id
+                            offerId,
+                            id
                     })
                 }
+                })
                 
                 // 处理分组后的活动，同名活动只显示一个
                 for (const [title, group] of titleGroups) {
@@ -341,62 +363,76 @@ export class PointsReporter {
                 pointsInfo.dailyTasks.activities.tasks = morePromotionsTasks
             }
 
-            // 阅读积分通过原作者的方式获取
+            // 2. 获取阅读赚积分 - 使用正确的接口和参数
+            let readToEarn = { current: 0, max: 0, remaining: 0 }
             if (accessToken) {
                 try {
-                    const geoLocale = userData.userProfile?.attributes?.country || 'us'
+                    // 尝试多个地区配置，因为阅读积分可能在不同地区可用
+                    const regionsToTry = ['cn', 'us', 'en-us', userData.userProfile?.attributes?.country || 'cn'].filter((r, i, arr) => arr.indexOf(r) === i)
+                    
+                    for (const region of regionsToTry) {
+                        try {
+                            console.log(`[debug] 尝试地区 ${region} 获取阅读积分信息...`)
+                            
                     const readToEarnRequest: AxiosRequestConfig = {
                         url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
                         method: 'GET',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
-                            'X-Rewards-Country': geoLocale,
-                            'X-Rewards-Language': 'en'
+                                    'X-Rewards-Country': region,
+                                    'X-Rewards-Language': this.config.searchSettings.rewardsLanguage || 'en',
+                                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36'
                         }
                     }
 
                     const readToEarnResponse = await this.axios.request(readToEarnRequest)
                     const readToEarnData = readToEarnResponse.data.response
                     
-                    // 查找阅读赚积分活动
+                            // 查找阅读赚积分活动 - 支持多种offerid格式
                     const readToEarnActivity = readToEarnData.promotions?.find((x: any) => 
-                        x.attributes?.offerid === 'ENUS_readarticle3_30points' && 
+                                (x.attributes?.offerid === 'ENUS_readarticle3_30points' || 
+                                 x.attributes?.offerid === 'CN_readarticle3_30points' ||
+                                 x.attributes?.offerid === 'ZH_readarticle3_30points' ||
+                                 x.attributes?.offerid === 'readarticle3_30points') && 
                         x.attributes?.type === 'msnreadearn'
                     )
 
                     if (readToEarnActivity) {
-                        const maxPoints = parseInt(readToEarnActivity.attributes.pointmax || '0')
-                        const currentPoints = parseInt(readToEarnActivity.attributes.pointprogress || '0')
-                        const remainingPoints = maxPoints - currentPoints
-
-                        pointsInfo.readToEarn = {
-                            current: currentPoints,
-                            max: maxPoints,
-                            remaining: Math.max(0, remainingPoints)
-                        }
+                                const max = parseInt(readToEarnActivity.attributes.pointmax || '0')
+                                const current = parseInt(readToEarnActivity.attributes.pointprogress || '0')
+                                readToEarn = {
+                                    current,
+                                    max,
+                                    remaining: Math.max(0, max - current)
+                                }
+                                console.log(`[debug] 阅读赚积分获取成功 (地区: ${region}):`, readToEarn)
+                                console.log('[debug] 找到的活动详情:', {
+                                    offerid: readToEarnActivity.attributes.offerid,
+                                    type: readToEarnActivity.attributes.type,
+                                    pointprogress: readToEarnActivity.attributes.pointprogress,
+                                    pointmax: readToEarnActivity.attributes.pointmax
+                                })
+                                console.log(`[debug] 匹配到的offerid: ${readToEarnActivity.attributes.offerid}`)
+                                break // 找到后跳出循环
                     } else {
-                        // 如果没有找到阅读积分活动，设置为默认值
-                        pointsInfo.readToEarn = {
-                            current: 0,
-                            max: 30,
-                            remaining: 30
+                                console.log(`[debug] 地区 ${region} 未找到阅读赚积分活动`)
+                                console.log('[debug] 可用的promotions:', readToEarnData.promotions?.map((p: any) => ({ 
+                                    offerid: p.attributes?.offerid, 
+                                    type: p.attributes?.type,
+                                    pointprogress: p.attributes?.pointprogress,
+                                    pointmax: p.attributes?.pointmax
+                                })))
+                    }
+                        } catch (error: any) {
+                            console.log(`[debug] 地区 ${region} 获取阅读积分失败:`, error.message)
                         }
                     }
-                } catch (error) {
-                    console.error('获取阅读赚积分信息失败:', error)
-                    // 如果获取失败，设置为默认值
-                    pointsInfo.readToEarn = {
-                        current: 0,
-                        max: 30,
-                        remaining: 30
-                    }
+                    
+                    if (readToEarn.current === 0 && readToEarn.max === 0) {
+                        console.log('[debug] 所有地区都未找到阅读赚积分活动')
                 }
-            } else {
-                // 如果没有accessToken，设置为默认值
-                pointsInfo.readToEarn = {
-                    current: 0,
-                    max: 30,
-                    remaining: 30
+                } catch (e) {
+                    console.error('获取阅读赚积分失败:', e)
                 }
             }
 
@@ -419,6 +455,15 @@ export class PointsReporter {
                 current: totalDailyCurrent,
                 max: totalDailyMax,
                 remaining: totalDailyMax - totalDailyCurrent
+            }
+
+            // 调试打印关键数据字段
+            if (this.config.enableDebugLog) {
+                console.log('[debug] dashboard.userStatus:', !!userData.userStatus)
+                console.log('[debug] dashboard.userProfile.attributes:', !!userData.userProfile?.attributes)
+                console.log('[debug] dashboard.dailySetPromotions:', !!userData.dailySetPromotions)
+                console.log('[debug] dashboard.morePromotionsWithoutPromotionalItems:', !!userData.morePromotionsWithoutPromotionalItems)
+                console.log('[debug] dashboard.counters:', !!userData.counters)
             }
 
             return pointsInfo
@@ -735,7 +780,29 @@ export class PointsReporter {
             }
 
             // 解析更多促销活动
-            if (data.morePromotionsWithoutPromotionalItems && Array.isArray(data.morePromotionsWithoutPromotionalItems)) {
+            const morePromotions = data.morePromotions || []
+            const morePromotionsWithoutPromotionalItems = data.morePromotionsWithoutPromotionalItems || []
+            
+            // 合并两个字段的活动，并去重（以offerId为唯一标识）
+            const allMoreActivities = new Map()
+            
+            // 先添加morePromotionsWithoutPromotionalItems（优先级更高）
+            morePromotionsWithoutPromotionalItems.forEach((activity: any) => {
+                const offerId = activity.offerId || activity.name
+                if (offerId) {
+                    allMoreActivities.set(offerId, activity)
+                }
+            })
+            
+            // 再添加morePromotions中不重复的活动
+            morePromotions.forEach((activity: any) => {
+                const offerId = activity.offerId || activity.name
+                if (offerId && !allMoreActivities.has(offerId)) {
+                    allMoreActivities.set(offerId, activity)
+                }
+            })
+            
+            if (allMoreActivities.size > 0) {
                 const morePromotionsTasks: Array<{
                     name: string
                     points: number
@@ -746,7 +813,7 @@ export class PointsReporter {
                 let totalMorePromotionsPoints = 0
                 let completedMorePromotionsPoints = 0
 
-                for (const promotion of data.morePromotionsWithoutPromotionalItems) {
+                allMoreActivities.forEach((promotion: any) => {
                     const promotionPoints = promotion.pointProgressMax || 0
                     const isCompleted = promotion.complete || false
                     const promotionName = promotion.title || promotion.name || '未知任务'
@@ -762,7 +829,7 @@ export class PointsReporter {
                     if (isCompleted) {
                         completedMorePromotionsPoints += promotionPoints
                     }
-                }
+                })
 
                 // 更新活动积分
                 pointsInfo.dailyTasks.activities = {
@@ -791,7 +858,7 @@ export class PointsReporter {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
                             'X-Rewards-Country': geoLocale,
-                            'X-Rewards-Language': 'en'
+                            'X-Rewards-Language': this.config.searchSettings.rewardsLanguage || 'en'
                         }
                     }
 
@@ -814,12 +881,21 @@ export class PointsReporter {
                             max: maxPoints,
                             remaining: Math.max(0, remainingPoints)
                         }
+
+                        if (this.config.enableDebugLog) {
+                            console.log('[debug] 阅读赚积分获取成功:', pointsInfo.readToEarn)
+                            console.log(`[debug] 匹配到的offerid: ${readToEarnActivity.attributes.offerid}`)
+                        }
                     } else {
                         // 如果没有找到阅读积分活动，设置为默认值
                         pointsInfo.readToEarn = {
                             current: 0,
                             max: 30,
                             remaining: 30
+                        }
+
+                        if (this.config.enableDebugLog) {
+                            console.log('[debug] 未找到阅读赚积分活动')
                         }
                     }
                 } catch (error) {
@@ -876,12 +952,20 @@ export class PointsReporter {
      * 统一通过API获取所有积分信息（主API+阅读API），并合并为PointsInfo结构
      */
     async getUnifiedPointsInfo(accessToken: string, country: string = 'us'): Promise<PointsInfo | null> {
-        // 自动判断country
+        // 自动判断country - 修改优先级逻辑
         let finalCountry = country
         if (this.config && this.config.searchSettings) {
-            if (this.config.searchSettings.useGeoLocaleQueries) {
+            // 1. 优先检查 preferredCountry
                 if (this.config.searchSettings.preferredCountry && this.config.searchSettings.preferredCountry.length === 2) {
                     finalCountry = this.config.searchSettings.preferredCountry.toLowerCase()
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 使用preferredCountry配置的地区:', finalCountry)
+                }
+            } else if (this.config.searchSettings.useGeoLocaleQueries) {
+                // 2. 只有在 preferredCountry 为空时才检查 useGeoLocaleQueries
+                finalCountry = country.toLowerCase()
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 使用useGeoLocaleQueries配置的地区:', finalCountry)
                 }
             }
         }
@@ -892,11 +976,11 @@ export class PointsReporter {
                 method: 'GET',
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Accept-Language': this.getAcceptLanguage(),
                     'Accept': 'application/json, text/plain, */*',
                     'Authorization': `Bearer ${accessToken}`,
                     'X-Rewards-Country': finalCountry,
-                    'X-Rewards-Language': 'en'
+                    'X-Rewards-Language': this.config.searchSettings.rewardsLanguage || 'en'
                 }
             }
             const userResponse = await this.axios.request(userInfoRequest)
@@ -911,28 +995,36 @@ export class PointsReporter {
             }
 
             // 调试打印关键数据字段
-            console.log('[DEBUG] dashboard.userStatus:', !!userData.userStatus)
-            console.log('[DEBUG] dashboard.userProfile.attributes:', !!userData.userProfile?.attributes)
-            console.log('[DEBUG] dashboard.dailySetPromotions:', !!userData.dailySetPromotions)
-            console.log('[DEBUG] dashboard.morePromotionsWithoutPromotionalItems:', !!userData.morePromotionsWithoutPromotionalItems)
-            console.log('[DEBUG] dashboard.counters:', !!userData.counters)
+            if (this.config.enableDebugLog) {
+                console.log('[debug] dashboard.userStatus:', !!userData.userStatus)
+                console.log('[debug] dashboard.userProfile.attributes:', !!userData.userProfile?.attributes)
+                console.log('[debug] dashboard.dailySetPromotions:', !!userData.dailySetPromotions)
+                console.log('[debug] dashboard.morePromotionsWithoutPromotionalItems:', !!userData.morePromotionsWithoutPromotionalItems)
+                console.log('[debug] dashboard.counters:', !!userData.counters)
+            }
 
             // 2. 获取阅读赚积分 - 使用正确的接口和参数
             let readToEarn = { current: 0, max: 0, remaining: 0 }
             if (accessToken) {
                 try {
-                    // 使用正确的地区参数
-                    const geoLocale = userData.userProfile?.attributes?.country || finalCountry
+                    // 尝试多个地区配置，因为阅读积分可能在不同地区可用
+                    const regionsToTry = ['cn', 'us', 'en-us', userData.userProfile?.attributes?.country || 'cn'].filter((r, i, arr) => arr.indexOf(r) === i)
+                    
+                    for (const region of regionsToTry) {
+                        try {
+                            console.log(`[debug] 尝试地区 ${region} 获取阅读积分信息...`)
+                            
                     const readToEarnRequest: AxiosRequestConfig = {
                         url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
                         method: 'GET',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
-                            'X-Rewards-Country': geoLocale,
-                            'X-Rewards-Language': 'en',
+                                    'X-Rewards-Country': region,
+                                    'X-Rewards-Language': this.config.searchSettings.rewardsLanguage || 'en',
                             'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36'
                         }
                     }
+                            
                     const readToEarnResponse = await this.axios.request(readToEarnRequest)
                     const readToEarnData = readToEarnResponse.data.response
                     
@@ -940,7 +1032,8 @@ export class PointsReporter {
                     const readToEarnActivity = readToEarnData.promotions?.find((x: any) => 
                         (x.attributes?.offerid === 'ENUS_readarticle3_30points' || 
                          x.attributes?.offerid === 'CN_readarticle3_30points' ||
-                         x.attributes?.type === 'msnreadearn') &&
+                                 x.attributes?.offerid === 'ZH_readarticle3_30points' ||
+                                 x.attributes?.offerid === 'readarticle3_30points') && 
                         x.attributes?.type === 'msnreadearn'
                     )
 
@@ -952,9 +1045,31 @@ export class PointsReporter {
                             max,
                             remaining: Math.max(0, max - current)
                         }
-                        console.log('[DEBUG] 阅读赚积分获取成功:', readToEarn)
+                                console.log(`[debug] 阅读赚积分获取成功 (地区: ${region}):`, readToEarn)
+                                console.log('[debug] 找到的活动详情:', {
+                                    offerid: readToEarnActivity.attributes.offerid,
+                                    type: readToEarnActivity.attributes.type,
+                                    pointprogress: readToEarnActivity.attributes.pointprogress,
+                                    pointmax: readToEarnActivity.attributes.pointmax
+                                })
+                                console.log(`[debug] 匹配到的offerid: ${readToEarnActivity.attributes.offerid}`)
+                                break // 找到后跳出循环
                     } else {
-                        console.log('[DEBUG] 未找到阅读赚积分活动')
+                                console.log(`[debug] 地区 ${region} 未找到阅读赚积分活动`)
+                                console.log('[debug] 可用的promotions:', readToEarnData.promotions?.map((p: any) => ({ 
+                                    offerid: p.attributes?.offerid, 
+                                    type: p.attributes?.type,
+                                    pointprogress: p.attributes?.pointprogress,
+                                    pointmax: p.attributes?.pointmax
+                                })))
+                            }
+                        } catch (error: any) {
+                            console.log(`[debug] 地区 ${region} 获取阅读积分失败:`, error.message)
+                        }
+                    }
+                    
+                    if (readToEarn.current === 0 && readToEarn.max === 0) {
+                        console.log('[debug] 所有地区都未找到阅读赚积分活动')
                     }
                 } catch (e) {
                     console.error('获取阅读赚积分失败:', e)
@@ -1035,7 +1150,9 @@ export class PointsReporter {
                         // 使用offerId或title作为去重键
                         const uniqueKey = task.offerId || task.title || task.name || ''
                         if (dailySetSeen.has(uniqueKey)) {
-                            console.log(`[DEBUG] 每日任务集去重: 跳过重复任务 ${uniqueKey}`)
+                            if (this.config?.enableDebugLog) {
+                                console.log(`[debug] 每日任务集去重: 跳过重复任务 ${uniqueKey}`)
+                            }
                             continue
                         }
                         dailySetSeen.add(uniqueKey)
@@ -1064,7 +1181,29 @@ export class PointsReporter {
             }
 
             // 解析更多促销活动（不再混入每日任务集）- 改进去重逻辑
-            if (userData.morePromotionsWithoutPromotionalItems && Array.isArray(userData.morePromotionsWithoutPromotionalItems)) {
+            const morePromotions = userData.morePromotions || []
+            const morePromotionsWithoutPromotionalItems = userData.morePromotionsWithoutPromotionalItems || []
+            
+            // 合并两个字段的活动，并去重（以offerId为唯一标识）
+            const allMoreActivities = new Map()
+            
+            // 先添加morePromotionsWithoutPromotionalItems（优先级更高）
+            morePromotionsWithoutPromotionalItems.forEach((activity: any) => {
+                const offerId = activity.offerId || activity.name
+                if (offerId) {
+                    allMoreActivities.set(offerId, activity)
+                }
+            })
+            
+            // 再添加morePromotions中不重复的活动
+            morePromotions.forEach((activity: any) => {
+                const offerId = activity.offerId || activity.name
+                if (offerId && !allMoreActivities.has(offerId)) {
+                    allMoreActivities.set(offerId, activity)
+                }
+            })
+            
+            if (allMoreActivities.size > 0) {
                 const morePromotionsTasks: Array<{
                     name: string
                     points: number
@@ -1101,39 +1240,37 @@ export class PointsReporter {
                 // 更好的方法：使用UTC时间来确定星期，避免时区问题
                 const utcNow = new Date()
                 const utcWeekday = utcNow.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
-                
                 // 使用UTC时间作为主要判断依据
                 todayWeekday = utcWeekday
                 
-                // 先按星期筛选，再按标题分组
-                for (const promotion of userData.morePromotionsWithoutPromotionalItems) {
-                    const nameStr = promotion.name || promotion.offerId || '';
-                    const parts = nameStr.split('_');
-                    const lastPart = parts[parts.length - 1].toLowerCase();
-                    const todayWeekdayLower = todayWeekday.toLowerCase();
-                    
-                    if (promotion.title === 'Do you know the answer?') {
-                    }
-                    
-                    // 按星期筛选
-                    if (lastPart !== todayWeekdayLower) continue;
-                    
-                    const promotionPoints = promotion.pointProgressMax || 0
+                // 处理所有活动，按标题分组
+                allMoreActivities.forEach((promotion: any) => {
+                    const title = promotion.title || promotion.name || '未知任务'
+                    const points = promotion.pointProgressMax || 0
                     const isCompleted = promotion.complete || false
-                    const promotionName = promotion.title || promotion.name || '未知任务'
+                    const offerId = promotion.offerId || promotion.name || ''
+                    const id = promotion.id || ''
                     
-                    // 按标题分组
-                    if (!titleGroups.has(promotionName)) {
-                        titleGroups.set(promotionName, [])
+                    // 检查是否是当天的活动
+                    const nameStr = promotion.name || promotion.offerId || ''
+                    const parts = nameStr.split('_')
+                    const lastPart = parts[parts.length - 1].toLowerCase()
+                    const isTodayActivity = lastPart === todayWeekday.toLowerCase()
+                    
+                    // 只处理当天的活动
+                    if (isTodayActivity) {
+                        if (!titleGroups.has(title)) {
+                            titleGroups.set(title, [])
                     }
-                    titleGroups.get(promotionName)!.push({
+                        titleGroups.get(title)!.push({
                         promotion,
-                        points: promotionPoints,
+                            points,
                         isCompleted,
-                        offerId: promotion.offerId,
-                        id: promotion.id
+                            offerId,
+                            id
                     })
                 }
+                })
                 
                 // 处理分组后的活动，同名活动只显示一个
                 for (const [title, group] of titleGroups) {
@@ -1180,7 +1317,7 @@ export class PointsReporter {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
                             'X-Rewards-Country': geoLocale,
-                            'X-Rewards-Language': 'en'
+                            'X-Rewards-Language': this.config.searchSettings.rewardsLanguage || 'en'
                         }
                     }
 
@@ -1203,12 +1340,21 @@ export class PointsReporter {
                             max: maxPoints,
                             remaining: Math.max(0, remainingPoints)
                         }
+
+                        if (this.config.enableDebugLog) {
+                            console.log('[debug] 阅读赚积分获取成功:', pointsInfo.readToEarn)
+                            console.log(`[debug] 匹配到的offerid: ${readToEarnActivity.attributes.offerid}`)
+                        }
                     } else {
                         // 如果没有找到阅读积分活动，设置为默认值
                         pointsInfo.readToEarn = {
                             current: 0,
                             max: 30,
                             remaining: 30
+                        }
+
+                        if (this.config.enableDebugLog) {
+                            console.log('[debug] 未找到阅读赚积分活动')
                         }
                     }
                 } catch (error) {
@@ -1301,5 +1447,38 @@ export class PointsReporter {
         // 控制台调试时调用getDetailedTaskStatus(pointsInfo, true)
         const detail = this.getDetailedTaskStatus(pointsInfo, true)
         console.log(detail)
+    }
+
+    private getAcceptLanguage(): string {
+        // 根据preferredCountry配置返回相应的Accept-Language
+        if (this.config && this.config.searchSettings && this.config.searchSettings.preferredCountry && this.config.searchSettings.preferredCountry.length === 2) {
+            const country = this.config.searchSettings.preferredCountry.toLowerCase()
+            switch (country) {
+                case 'cn':
+                    return 'zh-CN,zh;q=0.9,en;q=0.8'
+                case 'us':
+                    return 'en-US,en;q=0.9'
+                case 'jp':
+                    return 'ja-JP,ja;q=0.9,en;q=0.8'
+                case 'kr':
+                    return 'ko-KR,ko;q=0.9,en;q=0.8'
+                case 'gb':
+                    return 'en-GB,en;q=0.9'
+                case 'de':
+                    return 'de-DE,de;q=0.9,en;q=0.8'
+                case 'fr':
+                    return 'fr-FR,fr;q=0.9,en;q=0.8'
+                case 'es':
+                    return 'es-ES,es;q=0.9,en;q=0.8'
+                case 'it':
+                    return 'it-IT,it;q=0.9,en;q=0.8'
+                case 'ru':
+                    return 'ru-RU,ru;q=0.9,en;q=0.8'
+                default:
+                    return 'en-US,en;q=0.9'
+            }
+        }
+        // 默认返回中文
+        return 'zh-CN,zh;q=0.9,en;q=0.8'
     }
 } 

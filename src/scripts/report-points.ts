@@ -32,7 +32,7 @@ async function main() {
             
             try {
                 // 创建axios实例
-                const axiosClient = new AxiosClient(account.proxy)
+                const axiosClient = new AxiosClient(account.proxy, config.enableDebugLog)
                 const pointsReporter = new PointsReporter(axiosClient)
                 
                 // 获取并发送积分报告

@@ -15,6 +15,55 @@ function delay(ms) {
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const searchDelay = config.searchDelay || 0;
 
+// 创建带调试日志的 axios 实例
+const axiosWithDebug = axios.create();
+
+// 添加请求拦截器
+axiosWithDebug.interceptors.request.use(
+    (config) => {
+        if (config.enableDebugLog) {
+            console.log(`[debug][HTTP请求] ${config.method?.toUpperCase()} ${config.url}`);
+            if (config.headers) {
+                console.log(`[debug][HTTP请求头]`, config.headers);
+            }
+            if (config.data) {
+                console.log(`[debug][HTTP请求体]`, config.data);
+            }
+        }
+        return config;
+    },
+    (error) => {
+        if (config.enableDebugLog) {
+            console.log(`[debug][HTTP请求错误]`, error);
+        }
+        return Promise.reject(error);
+    }
+);
+
+// 添加响应拦截器
+axiosWithDebug.interceptors.response.use(
+    (response) => {
+        if (config.enableDebugLog) {
+            console.log(`[debug][HTTP响应] ${response.status} ${response.statusText} ${response.config.url}`);
+            console.log(`[debug][HTTP响应头]`, response.headers);
+            console.log(`[debug][HTTP响应体]`, response.data);
+        }
+        return response;
+    },
+    (error) => {
+        if (config.enableDebugLog) {
+            console.log(`[debug][HTTP响应错误]`, {
+                status: error.response?.status,
+                statusText: error.response?.statusText,
+                url: error.config?.url,
+                message: error.message,
+                data: error.response?.data
+            });
+        }
+        return Promise.reject(error);
+    }
+);
+
 // 获取真实阅读赚积分进度（使用正确的API调用方式）
 async function getReadProgressFromAPI(accessToken, geoLocale) {
     try {
@@ -28,7 +77,9 @@ async function getReadProgressFromAPI(accessToken, geoLocale) {
         
         for (const region of regionsToTry) {
             try {
-                console.log(`[DEBUG] 尝试地区 ${region} 获取阅读积分信息...`);
+                if (config.enableDebugLog) {
+                    console.log(`[debug] 尝试地区 ${region} 获取阅读积分信息...`);
+                }
                 
                 const readToEarnRequest = {
                     url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
@@ -38,10 +89,11 @@ async function getReadProgressFromAPI(accessToken, geoLocale) {
                         'X-Rewards-Country': region,
                         'X-Rewards-Language': 'en',
                         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36'
-                    }
+                    },
+                    enableDebugLog: config.enableDebugLog
                 };
 
-                const readToEarnResponse = await axios(readToEarnRequest);
+                const readToEarnResponse = await axiosWithDebug(readToEarnRequest);
                 const readToEarnData = readToEarnResponse.data.response;
                 
                 // 查找阅读赚积分活动 - 使用正确的匹配逻辑
@@ -55,20 +107,28 @@ async function getReadProgressFromAPI(accessToken, geoLocale) {
                     const maxPoints = Number(readToEarnActivity.attributes.pointmax) || 30;
                     const remainingPoints = maxPoints - currentPoints;
                     
-                    console.log(`[DEBUG] 阅读赚积分获取成功 (地区: ${region}):`, { current: currentPoints, max: maxPoints, remaining: remainingPoints });
+                    if (config.enableDebugLog) {
+                        console.log(`[debug] 阅读赚积分获取成功 (地区: ${region}):`, { current: currentPoints, max: maxPoints, remaining: remainingPoints });
+                    }
                     return { progress: currentPoints, max: maxPoints };
                 } else {
-                    console.log(`[DEBUG] 地区 ${region} 未找到阅读赚积分活动`);
+                    if (config.enableDebugLog) {
+                        console.log(`[debug] 地区 ${region} 未找到阅读赚积分活动`);
+                    }
                 }
             } catch (error) {
-                console.log(`[DEBUG] 地区 ${region} 获取阅读积分失败:`, error.message);
+                if (config.enableDebugLog) {
+                    console.log(`[debug] 地区 ${region} 获取阅读积分失败:`, error.message);
+                }
             }
         }
         
-        console.log('[DEBUG] 所有地区都未找到阅读赚积分活动');
+        if (config.enableDebugLog) {
+            console.log('[debug] 所有地区都未找到阅读赚积分活动');
+        }
         return null;
     } catch (error) {
-        console.error('[DEBUG] 获取阅读赚积分信息失败:', error.message);
+        console.error('[debug] 获取阅读赚积分信息失败:', error.message);
         return null;
     }
 }
@@ -147,7 +207,9 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
         // 使用offerId或title作为去重键
         const uniqueKey = task.offerId || task.title || task.name || '';
         if (dailySetSeen.has(uniqueKey)) {
-            console.log(`[DEBUG] 每日任务集去重: 跳过重复任务 ${uniqueKey}`);
+            if (config.enableDebugLog) {
+                console.log(`[debug] 每日任务集去重: 跳过重复任务 ${uniqueKey}`);
+            }
             return;
         }
         dailySetSeen.add(uniqueKey);
@@ -160,52 +222,85 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
         dailyTasksPoints += task.pointProgressMax || 0;
     });
     
-    // 获取更多活动 - 改进的去重逻辑
+    // 获取更多活动 - 使用活动计数器来准确统计
     const moreActivities = dashboard.morePromotionsWithoutPromotionalItems || [];
-    let moreActivitiesCompleted = 0;
+    
+    // 查找活动计数器
+    const activityCounter = dashboard.counters?.activityAndQuiz?.find(activity => 
+        activity.promotionType === 'activitycounter' || activity.name === 'Activity_Counter'
+    );
+    
     let moreActivitiesPoints = 0;
     let moreActivitiesPointsCompleted = 0;
     
-    // 用于更多活动去重的Map，按标题分组
-    const titleGroups = new Map();
-    
-    moreActivities.forEach(activity => {
-        const promotionName = activity.title || activity.name || '未知任务';
-        
-        if (!titleGroups.has(promotionName)) {
-            titleGroups.set(promotionName, []);
+    if (activityCounter) {
+        // 使用活动计数器的数据
+        moreActivitiesPoints = activityCounter.pointProgressMax || 0;
+        moreActivitiesPointsCompleted = activityCounter.pointProgress || 0;
+        if (config.enableDebugLog) {
+            console.log(`[debug] 使用活动计数器统计更多活动积分: ${moreActivitiesPointsCompleted}/${moreActivitiesPoints}`);
         }
-        titleGroups.get(promotionName).push({
-            activity,
-            points: activity.pointProgressMax || 0,
-            isCompleted: activity.complete || false
+    } else {
+        // 回退到原来的手动计算逻辑
+        if (config.enableDebugLog) {
+            console.log(`[debug] 未找到活动计数器，使用手动计算逻辑`);
+        }
+        
+        // 计算所有活动的积分
+        moreActivities.forEach(activity => {
+            const points = activity.pointProgressMax || 0;
+            if (activity.complete) {
+                moreActivitiesPointsCompleted += points;
+            }
+            moreActivitiesPoints += points;
         });
+    }
+    
+    // 获取当天可执行的活动 - 基于API响应判断
+    const todayWeekday = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    if (config.enableDebugLog) {
+        console.log(`[debug] 今天是: ${todayWeekday}`);
+    }
+    
+    // 筛选当天可执行的活动
+    const todayActivities = moreActivities.filter(activity => {
+        const nameStr = activity.name || activity.offerId || '';
+        const parts = nameStr.split('_');
+        const lastPart = parts[parts.length - 1].toLowerCase();
+        
+        // 检查是否匹配今天的星期
+        return lastPart === todayWeekday;
     });
     
-    // 处理分组后的活动，同名活动只显示一个
-    for (const [title, group] of titleGroups) {
-        // 对于同名活动，选择积分最高的那个，如果积分相同则选择已完成的那个
-        const bestActivity = group.reduce((best, current) => {
-            if (current.points > best.points) return current;
-            if (current.points === best.points && current.isCompleted && !best.isCompleted) return current;
-            return best;
+    if (config.enableDebugLog) {
+        console.log(`[debug] 当天可执行活动数量: ${todayActivities.length}`);
+        todayActivities.forEach(activity => {
+            console.log(`[debug] 当天活动: ${activity.title} (${activity.name}) - 完成状态: ${activity.complete}`);
         });
-        
-        if (bestActivity.isCompleted) {
-            moreActivitiesCompleted++;
-            moreActivitiesPointsCompleted += bestActivity.points;
-        }
-        moreActivitiesPoints += bestActivity.points;
     }
     
-    // 今日积分统计优先用API todayPoints，API无则回退手动累加
-    let todayPoints = dashboard.userStatus.countersSummary?.todayPoints;
-    let todayPointsMax = dashboard.userStatus.countersSummary?.todayPointsMax;
-    if (todayPoints === undefined || todayPointsMax === undefined) {
-        // 回退手动累加
-        todayPoints = (pcSearch.pointProgress || 0) + (mobileSearch.pointProgress || 0) + dailyTasksPointsCompleted + moreActivitiesPointsCompleted;
-        todayPointsMax = (pcSearch.pointProgressMax || 0) + (mobileSearch.pointProgressMax || 0) + dailyTasksPoints + moreActivitiesPoints + 30;
-    }
+    // 计算当天活动的完成情况
+    let todayActivitiesCompleted = 0;
+    let todayActivitiesTotal = 0;
+    let todayActivitiesPoints = 0;
+    let todayActivitiesPointsCompleted = 0;
+    
+    todayActivities.forEach(activity => {
+        const points = activity.pointProgressMax || 0;
+        if (activity.complete) {
+            todayActivitiesCompleted++;
+            todayActivitiesPointsCompleted += points;
+        }
+        todayActivitiesTotal++;
+        todayActivitiesPoints += points;
+    });
+    
+    // 获取阅读赚积分进度
+    const readProgress = await getReadProgressFromAPI(accessToken, accountRegion);
+    
+    // 计算今日总计
+    const todayPoints = pcSearch.pointProgress + mobileSearch.pointProgress + dailyTasksPointsCompleted + moreActivitiesPointsCompleted + (readProgress ? readProgress.progress : 0);
+    const todayPointsMax = pcSearch.pointProgressMax + mobileSearch.pointProgressMax + dailyTasksPoints + moreActivitiesPoints + (readProgress ? readProgress.max : 0);
     
     // 生成进度条
     function generateProgressBar(current, max, width = 10) {
@@ -220,130 +315,151 @@ async function generateTGMessage(email, dashboard, taskSummary = null, accessTok
         return max > 0 ? Math.round((current / max) * 100) : 0;
     }
     
-    // 构建消息
-    let message = `🔔 **Microsoft Rewards 积分报告**\n\n`;
+    // 生成消息
+    let message = `🤖 **Microsoft Rewards 积分报告**\n\n`;
     message += `📧 **账户**: ${maskedEmail}\n`;
-    message += `⏰ **时间**: ${timeStr}\n\n`;
+    message += `⏰ **时间**: ${timeStr}\n`;
     message += regionInfo;
     
-    // 任务完成信息
-    if (taskSummary) {
-        message += `🎯 **任务执行结果**\n`;
-        message += `• 开始积分: ${taskSummary.startPoints.toLocaleString()}\n`;
-        message += `• 结束积分: ${taskSummary.endPoints.toLocaleString()}\n`;
-        message += `• 本次获得: ${taskSummary.pointsGained.toLocaleString()} 积分\n`;
-        if (taskSummary.executionTime) {
-            message += `• 执行时间: ${Math.round(taskSummary.executionTime / 1000)}秒\n`;
-        }
-        if (taskSummary.dailyCheckInResult) {
-            message += `• 每日签到: ${taskSummary.dailyCheckInResult.success ? '✅ 成功' : '⏳ 已完成'} (${taskSummary.dailyCheckInResult.pointsGained}积分)\n`;
-        }
-        message += `\n`;
-    }
+    // 用户等级和积分信息
+    message += `🏆 **用户等级**: ${levelName}\n`;
+    message += `💰 **可用积分**: ${availablePoints.toLocaleString()}\n`;
+    message += `📈 **终身积分**: ${lifetimePoints.toLocaleString()}\n`;
+    message += `💸 **已兑换积分**: ${redeemedPoints.toLocaleString()}\n\n`;
     
-    message += `💰 **积分概览**\n`;
-    message += `• 可用积分: ${availablePoints.toLocaleString()}\n`;
-    message += `• 累计积分: ${lifetimePoints.toLocaleString()}\n`;
-    message += `• 已兑换积分: ${redeemedPoints.toLocaleString()}\n`;
-    if (levelName) message += `• 用户等级: ${levelName}\n\n\n`;
-    
-    message += `📈 **今日积分统计**: ${todayPoints}/${todayPointsMax} 积分\n\n`;
-    
-    message += `📊 桌面端搜索: ${generateProgressBar(pcSearch.pointProgress || 0, pcSearch.pointProgressMax || 0)} ${generatePercentage(pcSearch.pointProgress || 0, pcSearch.pointProgressMax || 0)}% (${pcSearch.pointProgress || 0}/${pcSearch.pointProgressMax || 0})\n`;
-    message += `📊 移动端搜索: ${generateProgressBar(mobileSearch.pointProgress || 0, mobileSearch.pointProgressMax || 0)} ${generatePercentage(mobileSearch.pointProgress || 0, mobileSearch.pointProgressMax || 0)}% (${mobileSearch.pointProgress || 0}/${mobileSearch.pointProgressMax || 0})\n`;
+    // 今日积分进度
+    message += `📊 **今日积分进度**\n`;
+    message += `📊 桌面搜索: ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}% (${pcSearch.pointProgress}/${pcSearch.pointProgressMax})\n`;
+    message += `📊 移动搜索: ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}% (${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax})\n`;
     message += `📊 每日活动: ${generateProgressBar(dailyTasksPointsCompleted, dailyTasksPoints)} ${generatePercentage(dailyTasksPointsCompleted, dailyTasksPoints)}% (${dailyTasksPointsCompleted}/${dailyTasksPoints})\n`;
     message += `📊 更多活动: ${generateProgressBar(moreActivitiesPointsCompleted, moreActivitiesPoints)} ${generatePercentage(moreActivitiesPointsCompleted, moreActivitiesPoints)}% (${moreActivitiesPointsCompleted}/${moreActivitiesPoints})\n`;
     
     // 使用正确的API调用方式获取阅读积分
-    const readProgress = await getReadProgressFromAPI(accessToken, accountRegion);
     if (readProgress == null) {
         message += `📊 阅读赚积分: x/x 获取失败\n`;
     } else {
         message += `📊 阅读赚积分: ${generateProgressBar(readProgress.progress, readProgress.max)} ${generatePercentage(readProgress.progress, readProgress.max)}% (${readProgress.progress}/${readProgress.max})\n`;
     }
+    
+    // 计算今日总计
     message += `📊 今日总计: ${generateProgressBar(todayPoints, todayPointsMax)} ${generatePercentage(todayPoints, todayPointsMax)}% (${todayPoints}/${todayPointsMax})\n\n`;
     
     // 已完成和待完成项目
     const completedItems = [];
     const pendingItems = [];
     
-    if (pcSearch.pointProgress >= pcSearch.pointProgressMax) completedItems.push('桌面端搜索');
-    else pendingItems.push('桌面端搜索');
+    if (pcSearch.pointProgress >= pcSearch.pointProgressMax && pcSearch.pointProgressMax > 0) completedItems.push('桌面搜索');
+    else if (pcSearch.pointProgressMax > 0) pendingItems.push('桌面搜索');
     
-    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax) completedItems.push('移动端搜索');
-    else pendingItems.push('移动端搜索');
+    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax && mobileSearch.pointProgressMax > 0) completedItems.push('移动搜索');
+    else if (mobileSearch.pointProgressMax > 0) pendingItems.push('移动搜索');
     
     if (dailyTasksCompleted === dailyTasksTotal && dailyTasksTotal > 0) completedItems.push('每日活动');
     else if (dailyTasksTotal > 0) pendingItems.push('每日活动');
     
-    if (moreActivitiesCompleted === titleGroups.size && titleGroups.size > 0) completedItems.push('更多活动');
-    else if (titleGroups.size > 0) pendingItems.push('更多活动');
+    if (todayActivitiesCompleted === todayActivitiesTotal && todayActivitiesTotal > 0) completedItems.push('更多活动');
+    else if (todayActivitiesTotal > 0) pendingItems.push('更多活动');
     
-    if (readProgress == null) {
-        pendingItems.push('阅读赚积分');
-    } else if (readProgress.progress >= readProgress.max) {
-        completedItems.push('阅读赚积分');
-    } else {
-        pendingItems.push('阅读赚积分');
+    if (readProgress && readProgress.progress >= readProgress.max && readProgress.max > 0) completedItems.push('阅读赚积分');
+    else if (readProgress && readProgress.max > 0) pendingItems.push('阅读赚积分');
+    
+    // 任务完成状态
+    if (completedItems.length > 0) {
+        message += `✅ **已完成**: ${completedItems.join(', ')}\n`;
     }
-    
-    message += `✅ **已完成**: ${completedItems.join(', ')}\n`;
-    message += '---------------------------------------------------------------\n';
     if (pendingItems.length > 0) {
-        message += `❌ **待完成**: ${pendingItems.join(', ')}\n`;
-    } else {
-        message += `❌ **待完成**: \n`;
+        message += `⏳ **待完成**: ${pendingItems.join(', ')}\n`;
     }
-    message += '\n---------------------------------------------------------------\n';
+    message += '\n';
     
     // 每日活动明细
-    message += '📋 **每日活动**:\n';
-    if (todayTasks.length > 0) {
-        todayTasks.forEach(task => {
-            const uniqueKey = task.offerId || task.title || task.name || '';
-            if (dailySetSeen.has(uniqueKey)) {
-                const status = task.complete ? '✅' : '❌';
-                const title = task.title || '未知任务';
-                const points = task.pointProgressMax || 0;
-                const date = task.date || timeStr.split(' ')[0];
-                const progress = `${task.pointProgress || points}/${points}`;
-                message += `${status} ${title} (${points}积分) - ${date} -  📊 进度: ${progress}\n`;
-            }
-        });
-    } else {
-        message += '无数据\n';
-    }
-    message += '---------------------------------------------------------------\n';
+    message += `📋 **每日活动**: ${dailyTasksTotal} 个活动\n`;
+    message += `🎯 总积分: ${dailyTasksPoints} ✅ 已完成: ${dailyTasksCompleted}/${dailyTasksTotal}\n`;
+    
+    todayTasks.forEach(task => {
+        const status = task.complete ? '✅' : '❌';
+        const points = task.pointProgressMax || 0;
+        const title = task.title || '未知任务';
+        message += `${status} ${title} (${points}积分)\n`;
+    });
+    message += '\n';
     
     // 更多活动明细
-    message += `📋 **更多活动**: ${titleGroups.size} 个活动--🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${moreActivitiesCompleted}/${titleGroups.size}\n`;
-    for (const [title, group] of titleGroups) {
-        const bestActivity = group.reduce((best, current) => {
-            if (current.points > best.points) return current;
-            if (current.points === best.points && current.isCompleted && !best.isCompleted) return current;
-            return best;
-        });
-        
-        const status = bestActivity.isCompleted ? '✅' : '❌';
-        const points = bestActivity.points;
-        const date = bestActivity.activity.date || timeStr.split(' ')[0];
-        const progress = `${bestActivity.activity.pointProgress || points}/${points}`;
+    const activityCounterInfo = activityCounter ? `(基于活动计数器: ${moreActivitiesPointsCompleted}/${moreActivitiesPoints})` : `(手动统计: ${moreActivitiesPointsCompleted}/${moreActivitiesPoints})`;
+    message += `📋 **更多活动**: ${todayActivities.length} 个活动 ${activityCounterInfo}\n`;
+    message += `🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${todayActivitiesCompleted}/${todayActivities.length}\n`;
+    
+    todayActivities.forEach(activity => {
+        const status = activity.complete ? '✅' : '❌';
+        const points = activity.pointProgressMax || 0;
+        const date = activity.date || timeStr.split(' ')[0];
+        const progress = `${activity.pointProgress || points}/${points}`;
+        const title = activity.title || '未知任务';
         message += `${status} ${title} (${points}积分) - ${date} -📊 进度: ${progress}\n`;
+    });
+    
+    // 任务执行结果
+    if (taskSummary) {
+        message += '\n';
+        message += `🚀 **任务执行结果**\n`;
+        message += `📈 积分变化: ${taskSummary.startPoints} → ${taskSummary.endPoints} (+${taskSummary.pointsGained})\n`;
+        if (taskSummary.executionTime) {
+            message += `⏱️ 执行时间: ${Math.round(taskSummary.executionTime / 1000)}秒\n`;
+        }
+        if (taskSummary.dailyCheckInResult) {
+            const checkIn = taskSummary.dailyCheckInResult;
+            if (checkIn.success) {
+                message += `✅ 每日签到: ${checkIn.message}\n`;
+            } else {
+                message += `❌ 每日签到: ${checkIn.message}\n`;
+            }
+        }
     }
     
-    // 判断是否需要加备注
-    if (readProgress && (todayPoints + (readProgress.max - readProgress.progress)) === todayPointsMax && todayPoints < todayPointsMax) {
-        message += '\n注：阅读积分可能不在该区域';
-    }
-    
-    // 验证消息内容
-    if (!message || message.trim() === '') {
-        console.error('❌ 生成的消息内容为空');
-        return '📱 Microsoft Rewards 报告\n\n❌ 无法生成报告内容，请检查数据';
-    }
-    
-    console.log(`📝 生成的消息长度: ${message.length} 字符`);
     return message;
+}
+
+// 获取动态Accept-Language的函数
+function getAcceptLanguage() {
+    // 从配置文件读取preferredCountry设置
+    try {
+        const configPath = path.join(__dirname, '..', 'config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        
+        if (config.searchSettings && config.searchSettings.preferredCountry && config.searchSettings.preferredCountry.length === 2) {
+            const country = config.searchSettings.preferredCountry.toLowerCase();
+            switch (country) {
+                case 'cn':
+                    return 'zh-CN,zh;q=0.9,en;q=0.8';
+                case 'us':
+                    return 'en-US,en;q=0.9';
+                case 'jp':
+                    return 'ja-JP,ja;q=0.9,en;q=0.8';
+                case 'kr':
+                    return 'ko-KR,ko;q=0.9,en;q=0.8';
+                case 'gb':
+                    return 'en-GB,en;q=0.9';
+                case 'de':
+                    return 'de-DE,de;q=0.9,en;q=0.8';
+                case 'fr':
+                    return 'fr-FR,fr;q=0.9,en;q=0.8';
+                case 'es':
+                    return 'es-ES,es;q=0.9,en;q=0.8';
+                case 'it':
+                    return 'it-IT,it;q=0.9,en;q=0.8';
+                case 'ru':
+                    return 'ru-RU,ru;q=0.9,en;q=0.8';
+                default:
+                    return 'en-US,en;q=0.9';
+            }
+        }
+    } catch (error) {
+        if (config.enableDebugLog) {
+            console.log('[debug] 读取配置文件失败，使用默认Accept-Language:', error.message);
+        }
+    }
+    // 默认返回中文
+    return 'zh-CN,zh;q=0.9,en;q=0.8';
 }
 
 // 发送消息到Telegram
@@ -372,7 +488,8 @@ async function sendToTelegram(message, telegramConfig) {
         data: {
             chat_id: chatId,
             text: message
-        }
+        },
+        enableDebugLog: config.enableDebugLog
     };
     
     console.log(`📡 发送到Telegram API: ${apiUrl}`);
@@ -380,7 +497,7 @@ async function sendToTelegram(message, telegramConfig) {
     console.log(`📝 消息预览: ${message.substring(0, 100)}...`);
     
     try {
-        const response = await axios(request);
+        const response = await axiosWithDebug(request);
         
         if (response.data.ok) {
             console.log(`✅ Telegram消息发送成功，消息ID: ${response.data.result.message_id}`);
@@ -519,7 +636,7 @@ async function testDirectAPI() {
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Language': getAcceptLanguage(),
             'Accept-Encoding': 'gzip, deflate, br',
             'Referer': 'https://rewards.bing.com/',
             'Origin': 'https://rewards.bing.com',

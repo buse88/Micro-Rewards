@@ -9,14 +9,22 @@
   "scripts": {
     "pre-build": "npm i && rimraf dist",
     "build": "PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/ npx playwright install chromium && tsc && cp src/config.json dist/ && cp src/accounts.json dist/",
+    "build-win": "npx playwright install chromium && tsc && copy src\\config.json dist\\ && copy src\\accounts.json dist\\",
+    "build-linux": "PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/ npx playwright install chromium && tsc && cp src/config.json dist/ && cp src/accounts.json dist/",
+    "build-docker": "npx playwright install chromium && tsc && cp src/config.json dist/ && cp src/accounts.json dist/",
+    "build-only": "tsc && cp src/config.json dist/ && cp src/accounts.json dist/",
+    "build-only-win": "tsc && copy src\\config.json dist\\ && copy src\\accounts.json dist\\",
     "start": "node ./dist/index.js",
     "ts-start": "ts-node ./src/index.ts",
     "dev": "ts-node ./src/index.ts -dev",
     "report-points": "ts-node ./src/scripts/report-points.ts",
+    "report-points-dist": "node ./dist/scripts/report-points.js",
     "kill-chrome-win": "powershell -Command \"Get-Process | Where-Object { $_.MainModule.FileVersionInfo.FileDescription -eq 'Google Chrome for Testing' } | ForEach-Object { Stop-Process -Id $_.Id -Force }\"",
     "kill-chrome-linux": "pkill -f 'Google Chrome for Testing'",
     "kill-chrome-mac": "pkill -f 'Google Chrome for Testing'",
-    "create-docker": "docker build -t micro-rewards-docker ."
+    "create-docker": "docker build -t micro-rewards-docker .",
+    "test-debug": "node ./dist/scripts/report-points.js",
+    "test-debug-win": "node .\\dist\\scripts\\report-points.js"
   },
   "keywords": [
     "Bing Rewards",

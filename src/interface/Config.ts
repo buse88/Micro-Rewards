@@ -17,6 +17,7 @@ export interface Config {
     networkSettings: ConfigNetworkSettings;
     browserSettings: any;
     onlyReport: boolean;
+    enableDebugLog: boolean;
 }
 
 export interface ConfigSaveFingerprint {
@@ -28,6 +29,7 @@ export interface ConfigSearchSettings {
     useGeoLocaleQueries: boolean;
     useDomesticHotAPIs: boolean;
     preferredCountry: string;
+    rewardsLanguage: string;
     scrollRandomResults: boolean;
     clickRandomResults: boolean;
     searchDelay: ConfigSearchDelay;

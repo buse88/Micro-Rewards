@@ -107,13 +107,15 @@ export class Search extends Workers {
             searchQueries = await this.getHotSearchQueries()
         } else {
             this.bot.log(this.bot.isMobile, 'SEARCH-BING', '使用Google Trends获取搜索词')
-            // 优先使用preferredCountry配置，如果没有配置则使用账号地区，最后回退到US
+            // 修改优先级逻辑：preferredCountry > useGeoLocaleQueries > 账号地区 > 默认US
             let searchCountry = 'US'
-            if (this.bot.config.searchSettings.useGeoLocaleQueries) {
-                if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
-                    searchCountry = this.bot.config.searchSettings.preferredCountry.toUpperCase()
-                    this.bot.log(this.bot.isMobile, 'SEARCH-BING', `使用preferredCountry配置的地区: ${searchCountry}`)
-                } else if (data.userProfile.attributes.country && data.userProfile.attributes.country.length === 2) {
+            if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
+                // 1. 优先使用preferredCountry配置
+                searchCountry = this.bot.config.searchSettings.preferredCountry.toUpperCase()
+                this.bot.log(this.bot.isMobile, 'SEARCH-BING', `使用preferredCountry配置的地区: ${searchCountry}`)
+            } else if (this.bot.config.searchSettings.useGeoLocaleQueries) {
+                // 2. 只有在preferredCountry为空时才检查useGeoLocaleQueries
+                if (data.userProfile.attributes.country && data.userProfile.attributes.country.length === 2) {
                     searchCountry = data.userProfile.attributes.country.toUpperCase()
                     this.bot.log(this.bot.isMobile, 'SEARCH-BING', `使用账号实际地区: ${searchCountry}`)
                 }

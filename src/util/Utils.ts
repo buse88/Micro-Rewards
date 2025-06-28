@@ -47,4 +47,16 @@ export default class Util {
         return milisec
     }
 
+    // 调试日志控制方法
+    debugLog(tag: string, message: string, data?: any): void {
+        // 这个方法需要在有config访问权限的地方调用
+        // 这里只是定义方法，实际使用需要在具体的类中实现
+        console.log(`[${tag}] ${message}`, data || '')
+    }
+
+    // 检查是否启用调试日志
+    isDebugEnabled(config?: any): boolean {
+        return config?.enableDebugLog === true
+    }
+
 }

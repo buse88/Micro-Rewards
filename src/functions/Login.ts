@@ -29,7 +29,7 @@ export class Login {
     async login(page: Page, email: string, password: string) {
 
         try {
-            this.bot.log(this.bot.isMobile, 'LOGIN', 'Starting login process!')
+            this.bot.log(this.bot.isMobile, 'LOGIN', '开始登录流程！')
 
             // Navigate to the Bing login page using safe goto
             await this.bot.browser.utils.safeGoto(page, 'https://rewards.bing.com/signin')
@@ -45,9 +45,9 @@ export class Login {
 
             if (!isLoggedIn) {
                 await this.execLogin(page, email, password)
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Logged into Microsoft successfully')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '已成功登录Microsoft')
             } else {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Already logged in')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '已经登录')
 
                 // Check if account is locked
                 await this.checkAccountLocked(page)
@@ -60,11 +60,11 @@ export class Login {
             await saveSessionData(this.bot.config.sessionPath, page.context(), email, this.bot.isMobile)
 
             // We're done logging in
-            this.bot.log(this.bot.isMobile, 'LOGIN', 'Logged in successfully, saved login session!')
+            this.bot.log(this.bot.isMobile, 'LOGIN', '登录成功，已保存登录会话！')
 
         } catch (error) {
             // Throw and don't continue
-            throw this.bot.log(this.bot.isMobile, 'LOGIN', 'An error occurred:' + error, 'error')
+            throw this.bot.log(this.bot.isMobile, 'LOGIN', '登录过程中发生错误: ' + error, 'error')
         }
     }
 
@@ -94,7 +94,7 @@ export class Login {
             // Wait for email field
             const emailField = await page.waitForSelector(emailInputSelector, { state: 'visible', timeout: 2000 }).catch(() => null)
             if (!emailField) {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Email field not found', 'warn')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '未找到邮箱输入框', 'warn')
                 return
             }
 
@@ -103,7 +103,7 @@ export class Login {
             // Check if email is prefilled
             const emailPrefilled = await page.waitForSelector('#userDisplayName', { timeout: 5000 }).catch(() => null)
             if (emailPrefilled) {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Email already prefilled by Microsoft')
+                this.bot.log(this.bot.isMobile, 'LOGIN', 'Microsoft已预填邮箱')
             } else {
                 // Else clear and fill email
                 await page.fill(emailInputSelector, '')
@@ -116,13 +116,13 @@ export class Login {
             if (nextButton) {
                 await nextButton.click()
                 await this.bot.utils.wait(2000)
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Email entered successfully')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '邮箱输入成功')
             } else {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Next button not found after email entry', 'warn')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '邮箱输入后未找到下一步按钮', 'warn')
             }
 
         } catch (error) {
-            this.bot.log(this.bot.isMobile, 'LOGIN', `Email entry failed: ${error}`, 'error')
+            this.bot.log(this.bot.isMobile, 'LOGIN', `邮箱输入失败: ${error}`, 'error')
         }
     }
 
@@ -131,7 +131,7 @@ export class Login {
         try {
             const viewFooter = await page.waitForSelector('[data-testid="viewFooter"]', { timeout: 2000 }).catch(() => null)
             if (viewFooter) {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Page "Get a code to sign in" found by "viewFooter"')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '通过"viewFooter"找到"获取登录代码"页面')
 
                 const otherWaysButton = await viewFooter.$('span[role="button"]')
                 if (otherWaysButton) {
@@ -149,7 +149,7 @@ export class Login {
             // Wait for password field
             const passwordField = await page.waitForSelector(passwordInputSelector, { state: 'visible', timeout: 5000 }).catch(() => null)
             if (!passwordField) {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Password field not found, possibly 2FA required', 'warn')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '未找到密码输入框，可能需要2FA验证', 'warn')
                 await this.handle2FA(page)
                 return
             }
@@ -166,13 +166,13 @@ export class Login {
             if (nextButton) {
                 await nextButton.click()
                 await this.bot.utils.wait(2000)
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Password entered successfully')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '密码输入成功')
             } else {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Next button not found after password entry', 'warn')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '密码输入后未找到下一步按钮', 'warn')
             }
 
         } catch (error) {
-            this.bot.log(this.bot.isMobile, 'LOGIN', `Password entry failed: ${error}`, 'error')
+            this.bot.log(this.bot.isMobile, 'LOGIN', `密码输入失败: ${error}`, 'error')
             await this.handle2FA(page)
         }
     }
@@ -188,7 +188,7 @@ export class Login {
                 await this.authSMSVerification(page)
             }
         } catch (error) {
-            this.bot.log(this.bot.isMobile, 'LOGIN', `2FA handling failed: ${error}`)
+            this.bot.log(this.bot.isMobile, 'LOGIN', `2FA处理失败: ${error}`)
         }
     }
 
@@ -198,8 +198,8 @@ export class Login {
             return await element.textContent()
         } catch {
             if (this.bot.config.parallel) {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Script running in parallel, can only send 1 2FA request per account at a time!', 'log', 'yellow')
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Trying again in 60 seconds! Please wait...', 'log', 'yellow')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '脚本并行运行，每个账户同时只能发送1个2FA请求！', 'log', 'yellow')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '60秒后重试！请稍候...', 'log', 'yellow')
 
                 // eslint-disable-next-line no-constant-condition
                 while (true) {
@@ -226,15 +226,15 @@ export class Login {
         // eslint-disable-next-line no-constant-condition
         while (true) {
             try {
-                this.bot.log(this.bot.isMobile, 'LOGIN', `Press the number ${numberToPress} on your Authenticator app to approve the login`)
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'If you press the wrong number or the "DENY" button, try again in 60 seconds')
+                this.bot.log(this.bot.isMobile, 'LOGIN', `请在您的身份验证器应用中按数字 ${numberToPress} 来批准登录`)
+                this.bot.log(this.bot.isMobile, 'LOGIN', '如果您按错了数字或按了"拒绝"按钮，请在60秒后重试')
 
                 await page.waitForSelector('form[name="f1"]', { state: 'detached', timeout: 60000 })
 
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'Login successfully approved!')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '登录成功获得批准！')
                 break
             } catch {
-                this.bot.log(this.bot.isMobile, 'LOGIN', 'The code is expired. Trying to get a new code...')
+                this.bot.log(this.bot.isMobile, 'LOGIN', '代码已过期。正在尝试获取新代码...')
                 await page.click('button[aria-describedby="pushNotificationsTitle errorDescription"]')
                 numberToPress = await this.get2FACode(page)
             }
@@ -242,10 +242,10 @@ export class Login {
     }
 
     private async authSMSVerification(page: Page) {
-        this.bot.log(this.bot.isMobile, 'LOGIN', 'SMS 2FA code required. Waiting for user input...')
+        this.bot.log(this.bot.isMobile, 'LOGIN', '需要SMS 2FA代码。等待用户输入...')
 
         const code = await new Promise<string>((resolve) => {
-            rl.question('Enter 2FA code:\n', (input) => {
+            rl.question('输入2FA代码:\n', (input) => {
                 rl.close()
                 resolve(input)
             })
@@ -253,7 +253,7 @@ export class Login {
 
         await page.fill('input[name="otc"]', code)
         await page.keyboard.press('Enter')
-        this.bot.log(this.bot.isMobile, 'LOGIN', '2FA code entered successfully')
+        this.bot.log(this.bot.isMobile, 'LOGIN', '2FA代码输入成功')
     }
 
     async getMobileAccessToken(page: Page, email: string) {
@@ -272,7 +272,7 @@ export class Login {
         let currentUrl = new URL(page.url())
         let code: string
 
-        this.bot.log(this.bot.isMobile, 'LOGIN-APP', 'Waiting for authorization...')
+        this.bot.log(this.bot.isMobile, 'LOGIN-APP', '等待授权...')
         // eslint-disable-next-line no-constant-condition
         while (true) {
             if (currentUrl.hostname === 'login.live.com' && currentUrl.pathname === '/oauth20_desktop.srf') {
@@ -302,7 +302,7 @@ export class Login {
         const tokenResponse = await this.bot.axios.request(tokenRequest)
         const tokenData: OAuth = await tokenResponse.data
 
-        this.bot.log(this.bot.isMobile, 'LOGIN-APP', 'Successfully authorized')
+        this.bot.log(this.bot.isMobile, 'LOGIN-APP', '授权成功')
         return tokenData.access_token
     }
 
@@ -323,7 +323,7 @@ export class Login {
 
         // Wait for login to complete
         await page.waitForSelector('html[data-role-name="RewardsPortal"]', { timeout: 10000 })
-        this.bot.log(this.bot.isMobile, 'LOGIN', 'Successfully logged into the rewards portal')
+        this.bot.log(this.bot.isMobile, 'LOGIN', '成功登录到积分门户')
     }
 
     private async dismissLoginMessages(page: Page) {
@@ -332,7 +332,7 @@ export class Login {
             const skipButton = await page.$('[data-testid="secondaryButton"]')
             if (skipButton) {
                 await skipButton.click()
-                this.bot.log(this.bot.isMobile, 'DISMISS-ALL-LOGIN-MESSAGES', 'Dismissed "Use Passekey" modal')
+                this.bot.log(this.bot.isMobile, 'DISMISS-ALL-LOGIN-MESSAGES', '已关闭"使用通行密钥"弹窗')
                 await page.waitForTimeout(500)
             }
         }
@@ -342,7 +342,7 @@ export class Login {
             const yesButton = await page.$('[data-testid="primaryButton"]')
             if (yesButton) {
                 await yesButton.click()
-                this.bot.log(this.bot.isMobile, 'DISMISS-ALL-LOGIN-MESSAGES', 'Dismissed "Keep me signed in" modal')
+                this.bot.log(this.bot.isMobile, 'DISMISS-ALL-LOGIN-MESSAGES', '已关闭"保持登录状态"弹窗')
                 await page.waitForTimeout(500)
             }
         }
@@ -351,7 +351,7 @@ export class Login {
 
     private async checkBingLogin(page: Page): Promise<void> {
         try {
-            this.bot.log(this.bot.isMobile, 'LOGIN-BING', 'Verifying Bing login')
+            this.bot.log(this.bot.isMobile, 'LOGIN-BING', '验证必应登录')
             await this.bot.browser.utils.safeGoto(page, 'https://www.bing.com/fd/auth/signin?action=interactive&provider=windows_live_id&return_url=https%3A%2F%2Fwww.bing.com%2F')
 
             const maxIterations = 5
@@ -365,7 +365,7 @@ export class Login {
                     const loggedIn = await this.checkBingLoginStatus(page)
                     // If mobile browser, skip this step
                     if (loggedIn || this.bot.isMobile) {
-                        this.bot.log(this.bot.isMobile, 'LOGIN-BING', 'Bing login verification passed!')
+                        this.bot.log(this.bot.isMobile, 'LOGIN-BING', '必应登录验证通过！')
                         break
                     }
                 }
@@ -374,7 +374,7 @@ export class Login {
             }
 
         } catch (error) {
-            this.bot.log(this.bot.isMobile, 'LOGIN-BING', 'An error occurred:' + error, 'error')
+            this.bot.log(this.bot.isMobile, 'LOGIN-BING', '验证必应登录时发生错误:' + error, 'error')
         }
     }
 
@@ -391,7 +391,7 @@ export class Login {
         await this.bot.utils.wait(2000)
         const isLocked = await page.waitForSelector('#serviceAbuseLandingTitle', { state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
         if (isLocked) {
-            throw this.bot.log(this.bot.isMobile, 'CHECK-LOCKED', 'This account has been locked! Remove the account from "accounts.json" and restart!', 'error')
+            throw this.bot.log(this.bot.isMobile, 'CHECK-LOCKED', '此账户已被锁定！请从"accounts.json"中移除该账户并重启！', 'error')
         }
     }
 }

@@ -24,6 +24,7 @@
     "searchSettings": {
         "useGeoLocaleQueries": false,
 		"preferredCountry": "cn",
+        "rewardsLanguage": "zh-CN",
         "useDomesticHotAPIs": true,
         "scrollRandomResults": false,
         "clickRandomResults": false,
@@ -36,10 +37,10 @@
         "retryDelay": "5s"
     },
     "networkSettings": {
-        "maxRetries": 2,
-        "retryDelay": 3000,
-        "connectionTimeout": 10000,
-        "pageLoadTimeout": 15000
+        "maxRetries": 5,
+        "retryDelay": 5000,
+        "connectionTimeout": 15000,
+        "pageLoadTimeout": 30000
     },
     "browserSettings": {
         "maxConcurrentPages": 2,

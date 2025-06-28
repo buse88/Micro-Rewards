@@ -200,8 +200,8 @@ ${taskResults}`
                 port: 0,
                 username: '',
                 password: ''
-            })
-            const pointsReporter = new PointsReporter(axiosClient)
+            }, this.config.enableDebugLog)
+            const pointsReporter = new PointsReporter(axiosClient, this.config)
             
             const success = await pointsReporter.sendPointsReport(accountEmail, accessToken)
             
@@ -350,8 +350,8 @@ ${failedAccounts > 0 ? '❌ 失败账户请检查错误日志' : ''}
                 port: 0,
                 username: '',
                 password: ''
-            })
-            const pointsReporter = new PointsReporter(axiosClient)
+            }, this.config.enableDebugLog)
+            const pointsReporter = new PointsReporter(axiosClient, this.config)
             
             const pointsInfo = await pointsReporter.getPointsInfo(accessToken)
             
@@ -539,10 +539,14 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
         }
     ): Promise<void> {
         try {
-            console.log('[DEBUG] sendPointsNotification 被调用', accountEmail)
-            const config = loadConfig()
-            if (!config.webhook?.telegram?.enabled) {
-                console.log('Telegram通知已禁用')
+            if (this.config.enableDebugLog) {
+                console.log('[debug] sendPointsNotification 被调用', accountEmail)
+            }
+
+            if (!this.config.webhook?.telegram?.enabled) {
+                if (this.config.enableDebugLog) {
+                    console.log('Telegram通知已禁用')
+                }
                 return
             }
             const axiosClient = new AxiosClient({
@@ -551,21 +555,43 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
                 port: 0,
                 username: '',
                 password: ''
-            })
-            const pointsReporter = new PointsReporter(axiosClient, config)
+            }, this.config?.enableDebugLog)
+            const pointsReporter = new PointsReporter(axiosClient, this.config)
             
             // 使用统一的积分获取方法，确保与正常项目使用相同的接口
             let pointsInfo = null
+            
+            // 从ruid中提取真实的账号归属地
+            let accountCountry = '-'
+            if (dashboardData?.userProfile?.ruid) {
+                const ruid = dashboardData.userProfile.ruid
+                // ruid格式通常是: "hk-B618847E1229189027F34BC8F6E773673040EE66"
+                // 前两个字符是地区代码
+                const countryCode = ruid.substring(0, 2).toLowerCase()
+                accountCountry = countryCode
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 从ruid提取账号地区:', ruid, '->', countryCode)
+                }
+            } else {
+                // 如果无法从ruid获取，回退到原有方法
+                accountCountry = dashboardData?.userProfile?.attributes?.country || '-'
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 无法从ruid获取地区，使用原有方法:', accountCountry)
+                }
+            }
+            
             if (accessToken) {
-                // 获取账户地区
-                const accountCountry = dashboardData?.userProfile?.attributes?.country || 'us'
-                console.log('[DEBUG] 使用getUnifiedPointsInfo获取积分信息，地区:', accountCountry)
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] 使用getUnifiedPointsInfo获取积分信息，地区:', accountCountry)
+                }
                 pointsInfo = await pointsReporter.getUnifiedPointsInfo(accessToken, accountCountry)
             }
             
             // 如果统一方法失败，回退到dashboardData方法
             if (!pointsInfo) {
-                console.log('[DEBUG] getUnifiedPointsInfo失败，回退到getPointsInfoFromDashboardData')
+                if (this.config.enableDebugLog) {
+                    console.log('[debug] getUnifiedPointsInfo失败，回退到getPointsInfoFromDashboardData')
+                }
                 pointsInfo = await pointsReporter.getPointsInfoFromDashboardData(dashboardData, accessToken)
             }
             
@@ -574,9 +600,6 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
                 return
             }
             
-            // 自动补全地区参数
-            const accountCountry = dashboardData?.userProfile?.attributes?.country || '-'
-            
             // 使用实际执行地区，如果没有提供则使用默认逻辑
             let checkInCountry = actualRegions?.checkInRegion || 'us'
             let readCountry = actualRegions?.readRegion || 'us'
@@ -584,19 +607,21 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
             
             // 如果没有提供实际执行地区，使用原有逻辑
             if (!actualRegions) {
-                if (config.searchSettings?.useGeoLocaleQueries && typeof accountCountry === 'string' && accountCountry.length === 2) {
+                if (this.config.searchSettings?.useGeoLocaleQueries && typeof accountCountry === 'string' && accountCountry.length === 2) {
                     checkInCountry = accountCountry.toLowerCase()
                     readCountry = accountCountry.toLowerCase()
                     searchCountry = accountCountry.toLowerCase()
                 }
             }
             
-            console.log('[DEBUG] 地区信息:', {
-                accountCountry,
-                actualCheckIn: checkInCountry,
-                actualRead: readCountry,
-                actualSearch: searchCountry
-            })
+            if (this.config.enableDebugLog) {
+                console.log('[debug] 地区信息:', {
+                    accountCountry,
+                    actualCheckIn: checkInCountry,
+                    actualRead: readCountry,
+                    actualSearch: searchCountry
+                })
+            }
             
             // 构建extraInfo，包含任务完成信息和实际执行地区
             const extraInfo = {
@@ -608,8 +633,10 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
             }
             
             const message = pointsReporter.formatPointsMessage(pointsInfo, accountEmail, extraInfo)
-            await sendNotification(config, message)
-            console.log('积分统计通知已发送')
+            await sendNotification(this.config, message)
+            if (this.config.enableDebugLog) {
+                console.log('积分统计通知已发送')
+            }
         } catch (error) {
             console.error('发送积分统计通知失败:', error)
         }
@@ -635,6 +662,60 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
             // 保留前3个字符，其余用*代替
             const maskedLocalPart = localPart.substring(0, 3) + '*'.repeat(localPart.length - 3)
             return `${maskedLocalPart}@${domain}`
+        }
+    }
+
+    /**
+     * 发送Telegram消息
+     */
+    async sendTelegramMessage(message: string): Promise<void> {
+        try {
+            if (!this.config.webhook?.telegram?.enabled) {
+                console.log('[提示] Telegram通知未启用')
+                return
+            }
+
+            const telegramConfig = this.config.webhook.telegram
+            if (!telegramConfig.botToken || !telegramConfig.chatId) {
+                console.log('[提示] Telegram配置不完整，缺少botToken或chatId')
+                return
+            }
+
+            const axiosClient = new AxiosClient({
+                proxyAxios: false,
+                url: '',
+                port: 0,
+                username: '',
+                password: ''
+            }, this.config.enableDebugLog)
+
+            const apiUrl = telegramConfig.apiProxy 
+                ? `${telegramConfig.apiProxy}/bot${telegramConfig.botToken}/sendMessage`
+                : `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`
+
+            const requestData = {
+                chat_id: telegramConfig.chatId,
+                text: message,
+                parse_mode: 'Markdown',
+                disable_web_page_preview: true
+            }
+
+            const response = await axiosClient.request({
+                method: 'POST',
+                url: apiUrl,
+                data: requestData,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }, true) // 使用直连模式
+
+            if (response.data?.ok) {
+                console.log(`✅ Telegram消息发送成功，消息ID: ${response.data.result.message_id}`)
+            } else {
+                console.error('❌ Telegram API错误:', response.data?.description || '未知错误')
+            }
+        } catch (error: any) {
+            console.error('❌ Telegram通知发送失败:', error.message)
         }
     }
 }

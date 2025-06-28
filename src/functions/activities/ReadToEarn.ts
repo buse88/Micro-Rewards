@@ -8,29 +8,43 @@ import { DashboardData } from '../../interface/DashboardData'
 
 export class ReadToEarn extends Workers {
     public async doReadToEarn(accessToken: string, data: DashboardData): Promise<{ articlesRead: number, totalPointsGained: number }> {
-        this.bot.log(this.bot.isMobile, 'READ-TO-EARN', '开始阅读赚积分')
+        if (this.bot.config.enableDebugLog) {
+            console.log('[debug] 开始执行阅读赚积分任务...')
+        }
 
         try {
             let geoLocale = data.userProfile.attributes.country
-            // 优先使用preferredCountry配置，如果没有配置则使用账号地区，最后回退到us
-            if (this.bot.config.searchSettings.useGeoLocaleQueries) {
+            // 修改优先级逻辑：preferredCountry > useGeoLocaleQueries > 账号地区 > 默认us
                 if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
+                // 1. 优先使用preferredCountry配置
                     geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
+                if (this.bot.config.enableDebugLog) {
                     console.log('[阅读调试] 使用preferredCountry配置的地区:', geoLocale)
-                } else if (geoLocale && geoLocale.length === 2) {
+                }
+            } else if (this.bot.config.searchSettings.useGeoLocaleQueries) {
+                // 2. 只有在preferredCountry为空时才检查useGeoLocaleQueries
+                if (geoLocale && geoLocale.length === 2) {
                     geoLocale = geoLocale.toLowerCase()
+                    if (this.bot.config.enableDebugLog) {
                     console.log('[阅读调试] 使用账号实际地区:', geoLocale)
+                    }
                 } else {
                     geoLocale = 'us'
+                    if (this.bot.config.enableDebugLog) {
                     console.log('[阅读调试] 使用默认地区:', geoLocale)
+                    }
                 }
             } else {
                 geoLocale = 'us'
-                console.log('[阅读调试] useGeoLocaleQueries为false，使用默认地区:', geoLocale)
+                if (this.bot.config.enableDebugLog) {
+                    console.log('[阅读调试] useGeoLocaleQueries为false且无preferredCountry，使用默认地区:', geoLocale)
+                }
             }
 
+            if (this.bot.config.enableDebugLog) {
             console.log('[阅读调试] accessToken:', accessToken)
             console.log('[阅读调试] geoLocale:', geoLocale)
+            }
 
             // 首先获取用户当前积分余额
             const userDataRequest: AxiosRequestConfig = {
@@ -39,18 +53,26 @@ export class ReadToEarn extends Workers {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'X-Rewards-Country': geoLocale,
-                    'X-Rewards-Language': 'en'
+                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
                 }
             }
             
             this.bot.log(this.bot.isMobile, 'READ-TO-EARN', '正在获取用户数据以检查当前余额...')
+            if (this.bot.config.enableDebugLog) {
             console.log('[阅读调试] userDataRequest:', JSON.stringify(userDataRequest, null, 2))
+            }
             const userDataResponse = await this.bot.axios.request(userDataRequest)
+            if (this.bot.config.enableDebugLog) {
             console.log('[阅读调试] userDataResponse:', JSON.stringify(userDataResponse.data, null, 2))
+            }
             const userData = (await userDataResponse.data).response
+            if (this.bot.config.enableDebugLog) {
             console.log('[阅读调试] userData:', JSON.stringify(userData, null, 2))
+            }
             let userBalance = userData.balance
+            if (this.bot.config.enableDebugLog) {
             console.log('[阅读调试] userBalance:', userBalance)
+            }
             
             this.bot.log(this.bot.isMobile, 'READ-TO-EARN', `当前余额: ${userBalance} 积分`)
 
@@ -79,18 +101,24 @@ export class ReadToEarn extends Workers {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
                         'X-Rewards-Country': geoLocale,
-                        'X-Rewards-Language': 'en'
+                        'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
                     },
                     data: JSON.stringify(jsonData)
                 }
+                if (this.bot.config.enableDebugLog) {
                 console.log(`[阅读调试] 第${i+1}次claimRequest:`, JSON.stringify(claimRequest, null, 2))
+                }
                 try {
                     this.bot.log(this.bot.isMobile, 'READ-TO-EARN', `正在尝试阅读第 ${i + 1} 篇文章...`)
                 const claimResponse = await this.bot.axios.request(claimRequest)
+                    if (this.bot.config.enableDebugLog) {
                     console.log(`[阅读调试] 第${i+1}次claimResponse:`, JSON.stringify(claimResponse.data, null, 2))
+                    }
                 const newBalance = (await claimResponse.data).response.balance
                     const pointsGained = newBalance - userBalance
+                    if (this.bot.config.enableDebugLog) {
                     console.log(`[阅读调试] 第${i+1}次newBalance:`, newBalance, 'pointsGained:', pointsGained)
+                    }
                     
                     if (pointsGained > 0) {
                         articlesRead++
@@ -106,7 +134,9 @@ export class ReadToEarn extends Workers {
                     await this.bot.utils.wait(2000)
                     
                 } catch (error) {
+                    if (this.bot.config.enableDebugLog) {
                     console.error(`[阅读调试] 第${i+1}次catch error:`, error)
+                    }
                     break
                 }
             }
@@ -117,11 +147,15 @@ export class ReadToEarn extends Workers {
                 this.bot.log(this.bot.isMobile, 'READ-TO-EARN', '没有成功阅读任何文章')
             }
 
+            if (this.bot.config.enableDebugLog) {
             console.log('[阅读调试] 最终articlesRead:', articlesRead, 'totalPointsGained:', totalPointsGained)
+            }
             return { articlesRead, totalPointsGained }
             
         } catch (error) {
+            if (this.bot.config.enableDebugLog) {
             console.error('[阅读调试] catch error:', error)
+            }
             return { articlesRead: 0, totalPointsGained: 0 }
         }
     }

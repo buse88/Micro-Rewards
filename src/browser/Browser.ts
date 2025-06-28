@@ -74,16 +74,35 @@ class Browser {
 
         const fingerprint = sessionData.fingerprint ? sessionData.fingerprint : await this.generateFingerprint()
 
+        // 根据配置决定是否添加X-Rewards请求头
+        const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
+                          (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
+        
+        const extraHeaders: any = {
+            'Accept-Language': this.getAcceptLanguage(),
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        
+        // 只有在CN地区时才添加X-Rewards相关请求头
+        if (isCNRegion) {
+            extraHeaders['X-Rewards-Country'] = 'cn'
+            extraHeaders['X-Rewards-Language'] = 'zh-CN'
+            extraHeaders['Accept-Charset'] = 'utf-8'
+            extraHeaders['Cache-Control'] = 'no-cache'
+            extraHeaders['Pragma'] = 'no-cache'
+            extraHeaders['Sec-Fetch-Dest'] = 'document'
+            extraHeaders['Sec-Fetch-Mode'] = 'navigate'
+            extraHeaders['Sec-Fetch-Site'] = 'none'
+            extraHeaders['Upgrade-Insecure-Requests'] = '1'
+        }
+
         const context = await newInjectedContext(browser as any, { 
             fingerprint: fingerprint,
             newContextOptions: {
                 viewport: this.bot.isMobile ? { width: 375, height: 667 } : { width: 1920, height: 1080 },
                 userAgent: fingerprint.fingerprint.navigator.userAgent,
-                extraHTTPHeaders: {
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-                }
+                extraHTTPHeaders: extraHeaders
             }
         })
 
@@ -111,6 +130,39 @@ class Browser {
         const updatedFingerPrintData = await updateFingerprintUserAgent(fingerPrintData, this.bot.isMobile)
 
         return updatedFingerPrintData
+    }
+
+    private getAcceptLanguage(): string {
+        // 根据preferredCountry配置返回相应的Accept-Language
+        if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
+            const country = this.bot.config.searchSettings.preferredCountry.toLowerCase()
+            switch (country) {
+                case 'cn':
+                    return 'zh-CN,zh;q=0.9,en;q=0.8'
+                case 'us':
+                    return 'en-US,en;q=0.9'
+                case 'jp':
+                    return 'ja-JP,ja;q=0.9,en;q=0.8'
+                case 'kr':
+                    return 'ko-KR,ko;q=0.9,en;q=0.8'
+                case 'gb':
+                    return 'en-GB,en;q=0.9'
+                case 'de':
+                    return 'de-DE,de;q=0.9,en;q=0.8'
+                case 'fr':
+                    return 'fr-FR,fr;q=0.9,en;q=0.8'
+                case 'es':
+                    return 'es-ES,es;q=0.9,en;q=0.8'
+                case 'it':
+                    return 'it-IT,it;q=0.9,en;q=0.8'
+                case 'ru':
+                    return 'ru-RU,ru;q=0.9,en;q=0.8'
+                default:
+                    return 'en-US,en;q=0.9'
+            }
+        }
+        // 默认返回英文
+        return 'en-US,en;q=0.9'
     }
 }
 

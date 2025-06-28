@@ -24,57 +24,40 @@ export default class BrowserFunc {
      * @param {Page} page Playwright page
     */
     async goHome(page: Page) {
-
         try {
-            const dashboardURL = new URL(this.bot.config.baseURL)
-
-            if (page.url() === dashboardURL.href) {
-                return
+            // 根据配置决定是否添加X-Rewards请求头
+            const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
+                              (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
+            
+            const extraHeaders: any = {
+                'Accept-Language': this.getAcceptLanguage(),
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
             }
+            
+            // 只有在CN地区时才添加X-Rewards相关请求头
+            if (isCNRegion) {
+                extraHeaders['X-Rewards-Country'] = 'cn'
+                extraHeaders['X-Rewards-Language'] = 'zh-CN'
+                extraHeaders['Accept-Charset'] = 'utf-8'
+                extraHeaders['Cache-Control'] = 'no-cache'
+                extraHeaders['Pragma'] = 'no-cache'
+                extraHeaders['Sec-Fetch-Dest'] = 'document'
+                extraHeaders['Sec-Fetch-Mode'] = 'navigate'
+                extraHeaders['Sec-Fetch-Site'] = 'none'
+                extraHeaders['Upgrade-Insecure-Requests'] = '1'
+            }
+
+            await page.setExtraHTTPHeaders(extraHeaders)
 
             await this.bot.browser.utils.safeGoto(page, this.bot.config.baseURL)
+            await page.waitForLoadState('domcontentloaded')
+            await this.bot.browser.utils.reloadBadPage(page)
 
-            const maxIterations = 5 // Maximum iterations set to 5
-
-            for (let iteration = 1; iteration <= maxIterations; iteration++) {
-                await this.bot.utils.wait(3000)
-                await this.bot.browser.utils.tryDismissAllMessages(page)
-
-                // Check if account is suspended
-                const isSuspended = await page.waitForSelector('#suspendedAccountHeader', { state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-                if (isSuspended) {
-                    this.bot.log(this.bot.isMobile, 'GO-HOME', 'This account is suspended!', 'error')
-                    throw new Error('Account has been suspended!')
-                }
-
-                try {
-                    // If activities are found, exit the loop
-                    await page.waitForSelector('#more-activities', { timeout: 1000 })
-                    this.bot.log(this.bot.isMobile, 'GO-HOME', 'Visited homepage successfully')
-                    break
-
-                } catch (error) {
-                    // Continue if element is not found
-                }
-
-                // Below runs if the homepage was unable to be visited
-                const currentURL = new URL(page.url())
-
-                if (currentURL.hostname !== dashboardURL.hostname) {
-                    await this.bot.browser.utils.tryDismissAllMessages(page)
-
-                    await this.bot.utils.wait(2000)
-                    await this.bot.browser.utils.safeGoto(page, this.bot.config.baseURL)
-                } else {
-                    this.bot.log(this.bot.isMobile, 'GO-HOME', 'Visited homepage successfully')
-                    break
-                }
-
-                await this.bot.utils.wait(5000)
-            }
+            this.bot.log(this.bot.isMobile, 'GO-HOME', '成功访问主页')
 
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'GO-HOME', 'An error occurred:' + error, 'error')
+            throw this.bot.log(this.bot.isMobile, 'GO-HOME', '访问主页时发生错误:' + error, 'error')
         }
     }
 
@@ -89,9 +72,23 @@ export default class BrowserFunc {
         try {
             // Should never happen since tasks are opened in a new tab!
             if (currentURL.hostname !== dashboardURL.hostname) {
-                this.bot.log(this.bot.isMobile, 'DASHBOARD-DATA', 'Provided page did not equal dashboard page, redirecting to dashboard page')
+                this.bot.log(this.bot.isMobile, 'DASHBOARD-DATA', '当前页面不是dashboard页面，正在跳转到dashboard页面')
                 await this.goHome(this.bot.homePage)
             }
+
+            // 在重新加载页面前设置请求头
+            await this.bot.homePage.setExtraHTTPHeaders({
+                'X-Rewards-Country': this.bot.config.searchSettings.preferredCountry || 'cn',
+                'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'zh-CN',
+                'Accept-Language': this.getAcceptLanguage(),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Upgrade-Insecure-Requests': '1'
+            })
 
             // Reload the page to get new data
             await this.bot.homePage.reload({ waitUntil: 'domcontentloaded' })
@@ -104,7 +101,7 @@ export default class BrowserFunc {
             })
 
             if (!scriptContent) {
-                throw this.bot.log(this.bot.isMobile, 'GET-DASHBOARD-DATA', 'Dashboard data not found within script', 'error')
+                throw this.bot.log(this.bot.isMobile, 'GET-DASHBOARD-DATA', '在脚本中未找到dashboard数据', 'error')
             }
 
             // Extract the dashboard object from the script content
@@ -120,13 +117,54 @@ export default class BrowserFunc {
             }, scriptContent)
 
             if (!dashboardData) {
-                throw this.bot.log(this.bot.isMobile, 'GET-DASHBOARD-DATA', 'Unable to parse dashboard script', 'error')
+                throw this.bot.log(this.bot.isMobile, 'GET-DASHBOARD-DATA', '无法解析dashboard脚本', 'error')
+            }
+
+            // 添加调试日志
+            if (this.bot.config.enableDebugLog) {
+                console.log('[debug] 从浏览器页面获取到的dashboard数据:')
+                console.log('[debug] - 用户状态:', {
+                    availablePoints: dashboardData.userStatus?.availablePoints,
+                    lifetimePoints: dashboardData.userStatus?.lifetimePoints,
+                    levelInfo: dashboardData.userStatus?.levelInfo
+                })
+                console.log('[debug] - 用户地区:', dashboardData.userProfile?.attributes?.country)
+                console.log('[debug] - 用户语言:', dashboardData.userProfile?.attributes?.language || '未设置')
+                console.log('[debug] - 用户ruid:', dashboardData.userProfile?.ruid)
+                console.log('[debug] - 配置的preferredCountry:', this.bot.config.searchSettings.preferredCountry)
+                console.log('[debug] - 浏览器Accept-Language:', this.getAcceptLanguage())
+                
+                // 修复每日任务数量显示 - 显示实际的每日任务数量
+                const today = this.bot.utils.getFormattedDate()
+                const todayTasks = dashboardData.dailySetPromotions?.[today] || []
+                console.log('[debug] - 每日任务数量:', todayTasks.length)
+                console.log('[debug] - 更多活动数量:', (dashboardData.morePromotionsWithoutPromotionalItems || []).length)
+                console.log('[debug] - 搜索计数器:', {
+                    pcSearch: dashboardData.userStatus?.counters?.pcSearch?.length || 0,
+                    mobileSearch: dashboardData.userStatus?.counters?.mobileSearch?.length || 0
+                })
+                
+                // 显示每日任务的详细信息
+                if (todayTasks.length > 0) {
+                    console.log('[debug] - 每日任务详情:')
+                    todayTasks.forEach((task: any, index: number) => {
+                        console.log(`[debug]   任务${index + 1}: ${task.title} (${task.offerId}) - 积分:${task.pointProgressMax} - 完成:${task.complete}`)
+                    })
+                }
+                
+                // 显示更多活动的详细信息
+                if (dashboardData.morePromotionsWithoutPromotionalItems && dashboardData.morePromotionsWithoutPromotionalItems.length > 0) {
+                    console.log('[debug] - 更多活动详情:')
+                    dashboardData.morePromotionsWithoutPromotionalItems.forEach((activity: any, index: number) => {
+                        console.log(`[debug]   活动${index + 1}: ${activity.title} (${activity.name}) - 完成:${activity.complete}`)
+                    })
+                }
             }
 
             return dashboardData
 
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'GET-DASHBOARD-DATA', `Error fetching dashboard data: ${error}`, 'error')
+            throw this.bot.log(this.bot.isMobile, 'GET-DASHBOARD-DATA', `获取dashboard数据时发生错误: ${error}`, 'error')
         }
 
     }
@@ -187,7 +225,7 @@ export default class BrowserFunc {
                 totalEarnablePoints
             }
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'GET-BROWSER-EARNABLE-POINTS', 'An error occurred:' + error, 'error')
+            throw this.bot.log(this.bot.isMobile, 'GET-BROWSER-EARNABLE-POINTS', '获取浏览器可赚取积分时发生错误:' + error, 'error')
         }
     }
 
@@ -218,7 +256,7 @@ export default class BrowserFunc {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'X-Rewards-Country': geoLocale,
-                    'X-Rewards-Language': 'en'
+                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
                 }
             }
 
@@ -244,7 +282,7 @@ export default class BrowserFunc {
 
             return points
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'GET-APP-EARNABLE-POINTS', 'An error occurred:' + error, 'error')
+            throw this.bot.log(this.bot.isMobile, 'GET-APP-EARNABLE-POINTS', '获取应用可赚取积分时发生错误:' + error, 'error')
         }
     }
 
@@ -258,7 +296,7 @@ export default class BrowserFunc {
 
             return data.userStatus.availablePoints
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'GET-CURRENT-POINTS', 'An error occurred:' + error, 'error')
+            throw this.bot.log(this.bot.isMobile, 'GET-CURRENT-POINTS', '获取当前积分时发生错误:' + error, 'error')
         }
     }
 
@@ -284,14 +322,14 @@ export default class BrowserFunc {
                     const quizData = JSON.parse(match[1])
                     return quizData
                 } else {
-                    throw this.bot.log(this.bot.isMobile, 'GET-QUIZ-DATA', 'Quiz data not found within script', 'error')
+                    throw this.bot.log(this.bot.isMobile, 'GET-QUIZ-DATA', '未找到包含测验数据的脚本', 'error')
                 }
             } else {
                 throw this.bot.log(this.bot.isMobile, 'GET-QUIZ-DATA', 'Script containing quiz data not found', 'error')
             }
 
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'GET-QUIZ-DATA', 'An error occurred:' + error, 'error')
+            throw this.bot.log(this.bot.isMobile, 'GET-QUIZ-DATA', '获取测验数据时发生错误:' + error, 'error')
         }
 
     }
@@ -303,7 +341,7 @@ export default class BrowserFunc {
 
             return true
         } catch (error) {
-            this.bot.log(this.bot.isMobile, 'QUIZ-REFRESH', 'An error occurred:' + error, 'error')
+            this.bot.log(this.bot.isMobile, 'QUIZ-REFRESH', '刷新测验时发生错误:' + error, 'error')
             return false
         }
     }
@@ -337,7 +375,7 @@ export default class BrowserFunc {
                 selector = `a[href*="${element.attribs.href}"]`
             }
         } catch (error) {
-            this.bot.log(this.bot.isMobile, 'GET-PUNCHCARD-ACTIVITY', 'An error occurred:' + error, 'error')
+            this.bot.log(this.bot.isMobile, 'GET-PUNCHCARD-ACTIVITY', '获取打卡活动时发生错误:' + error, 'error')
         }
 
         return selector
@@ -345,28 +383,65 @@ export default class BrowserFunc {
 
     async closeBrowser(browser: BrowserContext, email: string) {
         try {
+            // 检查浏览器上下文是否有效
+            if (!browser) {
+                this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', '浏览器上下文无效，跳过清理')
+                return
+            }
+
             // Save cookies
-            await saveSessionData(this.bot.config.sessionPath, browser, email, this.bot.isMobile)
+            try {
+                await saveSessionData(this.bot.config.sessionPath, browser, email, this.bot.isMobile)
+            } catch (cookieError) {
+                this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', `保存cookies失败: ${cookieError}`, 'error')
+            }
 
             await this.bot.utils.wait(500) // 减少等待时间
 
             // 关闭所有页面
-            const pages = browser.pages()
-            for (const page of pages) {
-                try {
-                    if (!page.isClosed()) {
-                        await page.close()
+            try {
+                const pages = browser.pages()
+                for (const page of pages) {
+                    try {
+                        if (!page.isClosed()) {
+                            await page.close()
+                        }
+                    } catch (pageError) {
+                        // 忽略页面关闭错误
+                        this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', `关闭页面失败: ${pageError}`, 'error')
                     }
-                } catch (error) {
-                    // 忽略页面关闭错误
                 }
+            } catch (pagesError) {
+                this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', `获取页面列表失败: ${pagesError}`, 'error')
             }
 
             // Close browser
-            await browser.close()
-            this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', '浏览器已干净关闭！')
+            try {
+                await browser.close()
+                this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', '浏览器已干净关闭！')
+            } catch (closeError) {
+                this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', `关闭浏览器失败: ${closeError}`, 'error')
+            }
         } catch (error) {
-            throw this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', '发生错误:' + error, 'error')
+            this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', `关闭浏览器过程中发生错误: ${error}`, 'error')
         }
+    }
+
+    /**
+     * 获取Accept-Language
+     */
+    private getAcceptLanguage(): string {
+        if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
+            const country = this.bot.config.searchSettings.preferredCountry.toLowerCase()
+            switch (country) {
+                case 'cn':
+                    return 'zh-CN,zh;q=0.9,en;q=0.8'
+                case 'us':
+                    return 'en-US,en;q=0.9'
+                default:
+                    return 'zh-CN,zh;q=0.9,en;q=0.8'
+            }
+        }
+        return 'zh-CN,zh;q=0.9,en;q=0.8'
     }
 }

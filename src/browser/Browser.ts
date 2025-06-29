@@ -74,7 +74,7 @@ class Browser {
 
         const fingerprint = sessionData.fingerprint ? sessionData.fingerprint : await this.generateFingerprint()
 
-        // 根据配置决定是否添加X-Rewards请求头
+        // 根据配置决定是否添加油猴脚本风格的请求头
         const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
                           (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
         
@@ -84,10 +84,8 @@ class Browser {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
         }
         
-        // 只有在CN地区时才添加X-Rewards相关请求头
+        // 当地区为cn时，对标油猴脚本的请求头
         if (isCNRegion) {
-            extraHeaders['X-Rewards-Country'] = 'cn'
-            extraHeaders['X-Rewards-Language'] = 'zh-CN'
             extraHeaders['Accept-Charset'] = 'utf-8'
             extraHeaders['Cache-Control'] = 'no-cache'
             extraHeaders['Pragma'] = 'no-cache'
@@ -95,6 +93,7 @@ class Browser {
             extraHeaders['Sec-Fetch-Mode'] = 'navigate'
             extraHeaders['Sec-Fetch-Site'] = 'none'
             extraHeaders['Upgrade-Insecure-Requests'] = '1'
+            extraHeaders['Connection'] = 'keep-alive'
         }
 
         const context = await newInjectedContext(browser as any, { 

@@ -169,80 +169,107 @@ export class MicrosoftRewardsBot {
                             isMobile: false // 桌面端和移动端都执行了
                         }
                         
-                        // 直接使用已获取的dashboard数据生成TG消息
-                        try {
-                            // 获取实际执行任务的地区信息
-                            const actualRegions = this.getActualRegions(mobileResult.dashboardData)
-                            if (this.config.enableDebugLog) {
-                                console.log('[debug] 实际执行任务的地区:', actualRegions)
-                            }
-                            
-                            // 将地区信息添加到dashboard数据中，供TG消息生成器使用
-                            const dashboardWithRegions = {
-                                ...mobileResult.dashboardData,
-                                actualRegions: actualRegions,
-                                config: {
-                                    searchSettings: {
-                                        preferredCountry: this.config.searchSettings.preferredCountry,
-                                        useGeoLocaleQueries: this.config.searchSettings.useGeoLocaleQueries
+                        // 检查是否有dashboard数据，无论任务是否全部成功都尝试发送TG积分报告
+                        if (mobileResult.dashboardData) {
+                            try {
+                                console.log('[主程序调试] === 开始生成TG积分报告（宽容模式） ===')
+                                console.log('[主程序调试] 账户邮箱:', account.email)
+                                console.log('[主程序调试] 任务摘要:', taskSummary)
+                                console.log('[主程序调试] desktopResult.success:', desktopResult?.success)
+                                console.log('[主程序调试] mobileResult.success:', mobileResult?.success)
+                                console.log('[主程序调试] mobileResult.dashboardData存在:', !!mobileResult.dashboardData)
+                                
+                                // 获取实际执行任务的地区信息
+                                const actualRegions = this.getActualRegions(mobileResult.dashboardData)
+                                if (this.config.enableDebugLog) {
+                                    console.log('[主程序调试] 实际执行任务的地区:', actualRegions)
+                                }
+                                
+                                // 将地区信息添加到dashboard数据中，供TG消息生成器使用
+                                const dashboardWithRegions = {
+                                    ...mobileResult.dashboardData,
+                                    actualRegions: actualRegions,
+                                    config: {
+                                        searchSettings: {
+                                            preferredCountry: this.config.searchSettings.preferredCountry,
+                                            useGeoLocaleQueries: this.config.searchSettings.useGeoLocaleQueries
+                                        }
                                     }
                                 }
-                            }
-                            
-                            // 获取accessToken用于阅读积分查询
-                            let accessToken = null
-                            try {
-                                const sessionDir = path.join(process.cwd(), 'dist', 'browser', this.config.sessionPath, account.email)
-                                const mobileAccessTokenPath = path.join(sessionDir, 'mobile_accessToken.txt')
-                                if (fs.existsSync(mobileAccessTokenPath)) {
-                                    accessToken = fs.readFileSync(mobileAccessTokenPath, 'utf8').trim()
+                                
+                                console.log('[主程序调试] dashboard数据结构:')
+                                console.log('[主程序调试] - userStatus存在:', !!dashboardWithRegions.userStatus)
+                                console.log('[主程序调试] - userProfile存在:', !!dashboardWithRegions.userProfile)
+                                console.log('[主程序调试] - dailySetPromotions存在:', !!dashboardWithRegions.dailySetPromotions)
+                                console.log('[主程序调试] - morePromotions存在:', !!dashboardWithRegions.morePromotions)
+                                
+                                // 获取accessToken用于阅读积分查询
+                                let accessToken = null
+                                try {
+                                    const sessionDir = path.join(process.cwd(), 'dist', 'browser', this.config.sessionPath, account.email)
+                                    const mobileAccessTokenPath = path.join(sessionDir, 'mobile_accessToken.txt')
+                                    if (fs.existsSync(mobileAccessTokenPath)) {
+                                        accessToken = fs.readFileSync(mobileAccessTokenPath, 'utf8').trim()
+                                        console.log('[主程序调试] ✅ 从文件获取accessToken成功，长度:', accessToken.length)
+                                    } else {
+                                        console.log('[主程序调试] ⚠️  accessToken文件不存在:', mobileAccessTokenPath)
+                                    }
+                                } catch (error) {
+                                    if (this.config.enableDebugLog) {
+                                        const msg = error instanceof Error ? error.message : String(error)
+                                        console.log('[主程序调试] ❌ 获取accessToken失败:', msg)
+                                    }
                                 }
-                            } catch (error: any) {
+                                
+                                // 生成TG消息
                                 if (this.config.enableDebugLog) {
-                                    console.log('[debug] 获取accessToken失败:', error.message)
+                                    console.log('[主程序调试] 准备生成TG消息，传入的dashboard数据:')
+                                    console.log('[主程序调试] - mobileResult.dashboardData.ruid:', mobileResult.dashboardData?.ruid)
+                                    console.log('[主程序调试] - mobileResult.dashboardData.userProfile?.attributes?.ruid:', mobileResult.dashboardData?.userProfile?.attributes?.ruid)
+                                    console.log('[主程序调试] - mobileResult.dashboardData.userProfile?.attributes?.country:', mobileResult.dashboardData?.userProfile?.attributes?.country)
                                 }
-                            }
-                            
-                            // 生成TG消息
-                            if (this.config.enableDebugLog) {
-                                console.log('[debug] 准备生成TG消息，传入的dashboard数据:')
-                                console.log('[debug] - mobileResult.dashboardData.ruid:', mobileResult.dashboardData?.ruid)
-                                console.log('[debug] - mobileResult.dashboardData.userProfile?.attributes?.ruid:', mobileResult.dashboardData?.userProfile?.attributes?.ruid)
-                                console.log('[debug] - mobileResult.dashboardData.userProfile?.attributes?.country:', mobileResult.dashboardData?.userProfile?.attributes?.country)
-                            }
-                            
-                            const tgMessage = await generateTGMessage(account.email, dashboardWithRegions, taskSummary, accessToken, this.config)
-                            
-                            // 发送TG通知
-                            if (this.config.webhook?.telegram?.enabled) {
-                                await this.notificationManager.sendTelegramMessage(tgMessage)
-                                if (this.config.enableDebugLog) {
-                                    console.log('[debug] TG积分报告已发送')
+                                
+                                console.log('[主程序调试] 开始调用generateTGMessage...')
+                                const tgMessage = await generateTGMessage(account.email, dashboardWithRegions, taskSummary, accessToken, this.config)
+                                console.log('[主程序调试] ✅ TG消息生成成功，长度:', tgMessage.length)
+                                console.log('[主程序调试] TG消息预览:', tgMessage.substring(0, 300) + '...')
+                                
+                                // 发送TG通知
+                                if (this.config.webhook?.telegram?.enabled) {
+                                    console.log('[主程序调试] Telegram已启用，开始发送消息...')
+                                    await this.notificationManager.sendTelegramMessage(tgMessage)
+                                    if (this.config.enableDebugLog) {
+                                        console.log('[主程序调试] ✅ TG积分报告已发送')
+                                    }
+                                } else {
+                                    if (this.config.enableDebugLog) {
+                                        console.log('[主程序调试] ⚠️  Telegram未启用，跳过发送')
+                                        console.log('[主程序调试] Telegram配置:', this.config.webhook?.telegram)
+                                    }
                                 }
-                            } else {
-                                if (this.config.enableDebugLog) {
-                                    console.log('[debug] Telegram未启用，跳过发送')
-                                }
-                            }
-                        } catch (error) {
-                            if (this.config.enableDebugLog) {
-                                console.error('[debug] 生成TG消息失败:', error)
+                            } catch (error) {
+                                console.error('[主程序调试] ❌ TG消息生成或发送失败:', error)
+                                console.error('[主程序调试] 错误堆栈:', error instanceof Error ? error.stack : '无堆栈信息')
+                                console.error('[主程序调试] 错误详情:', {
+                                    message: error instanceof Error ? error.message : String(error),
+                                    name: error instanceof Error ? error.name : 'Unknown',
+                                    stack: error instanceof Error ? error.stack : '无堆栈信息'
+                                })
                             }
                         }
+                        
+                        // 收集成功的结果
+                        accountResults.push({
+                            email: account.email,
+                            desktopResult,
+                            mobileResult,
+                            success: true
+                        })
                     }
-                    
-                    // 收集成功的结果
-                    accountResults.push({
-                        email: account.email,
-                        desktopResult,
-                        mobileResult,
-                        success: true
-                    })
                 } else {
                     failedAccounts++
                     const error = desktopResult?.error || mobileResult?.error || '未知错误'
                     log('main', 'MAIN-WORKER', `账户 ${account.email} 的任务执行失败: ${error}`, 'error')
-                    
                     // 收集失败的结果
                     accountResults.push({
                         email: account.email,
@@ -251,11 +278,9 @@ export class MicrosoftRewardsBot {
                         success: false
                     })
                 }
-                
-            } catch (error) {
+            } catch (error: any) {
                 failedAccounts++
                 log('main', 'MAIN-WORKER', `账户 ${account.email} 的任务执行失败: ${error}`, 'error')
-                
                 // 收集异常的结果
                 accountResults.push({
                     email: account.email,
@@ -313,11 +338,11 @@ export class MicrosoftRewardsBot {
             // 获取初始积分
             startPoints = await this.browser.func.getCurrentPoints()
 
-            // 修改：使用API方法获取dashboard数据，而不是从浏览器页面获取
+            // 从浏览器页面获取dashboard数据
             let data: any
             try {
                 if (this.config.enableDebugLog) {
-                    console.log('[debug] 尝试使用API方法获取dashboard数据')
+                    console.log('[debug] 尝试从浏览器页面获取dashboard数据')
                 }
                 data = await this.browser.func.getDashboardData()
             } catch (error) {
@@ -417,29 +442,43 @@ export class MicrosoftRewardsBot {
     } {
         const accountCountry = data.userProfile?.attributes?.country || 'us'
         
+        // 获取账号实际地区（从ruid）
+        let accountRegion = 'us'
+        if (data?.userProfile?.ruid && typeof data.userProfile.ruid === 'string' && data.userProfile.ruid.includes('-')) {
+            accountRegion = data.userProfile.ruid.split('-')[0].toLowerCase()
+        } else if (accountCountry && accountCountry.length === 2) {
+            accountRegion = accountCountry.toLowerCase()
+        }
+        
         // 使用与各功能相同的地区选择逻辑 - 修改优先级逻辑
         let searchRegion = 'us'
         let checkInRegion = 'us'
         let readRegion = 'us'
         
-        // 1. 优先检查 preferredCountry
+        // 1. 优先检查 preferredCountry（仅用于搜索）
         if (this.config.searchSettings.preferredCountry && this.config.searchSettings.preferredCountry.length === 2) {
             searchRegion = this.config.searchSettings.preferredCountry.toLowerCase()
-            checkInRegion = this.config.searchSettings.preferredCountry.toLowerCase()
-            readRegion = this.config.searchSettings.preferredCountry.toLowerCase()
             if (this.config.enableDebugLog) {
-                console.log('[debug] 使用preferredCountry配置的地区:', searchRegion)
+                console.log('[debug] 使用preferredCountry配置的搜索地区:', searchRegion)
             }
         } else if (this.config.searchSettings.useGeoLocaleQueries) {
             // 2. 只有在 preferredCountry 为空时才检查 useGeoLocaleQueries
             if (accountCountry && accountCountry.length === 2) {
                 searchRegion = accountCountry.toLowerCase()
-                checkInRegion = accountCountry.toLowerCase()
-                readRegion = accountCountry.toLowerCase()
                 if (this.config.enableDebugLog) {
-                    console.log('[debug] 使用useGeoLocaleQueries配置的地区:', searchRegion)
+                    console.log('[debug] 使用useGeoLocaleQueries配置的搜索地区:', searchRegion)
                 }
             }
+        }
+        
+        // 签到和阅读任务使用账号实际地区，不受preferredCountry影响
+        checkInRegion = accountRegion
+        readRegion = accountRegion
+        
+        if (this.config.enableDebugLog) {
+            console.log('[debug] 账号实际地区:', accountRegion)
+            console.log('[debug] 签到地区:', checkInRegion)
+            console.log('[debug] 阅读地区:', readRegion)
         }
         
         return {

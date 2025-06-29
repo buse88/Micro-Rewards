@@ -72,8 +72,8 @@
         ],
         "telegram": {
             "enabled": false,
-            "botToken": "",
-            "chatId": "",
+            "botToken": "YOUR_BOT_TOKEN_HERE",
+            "chatId": "YOUR_CHAT_ID_HERE",
             "apiProxy": ""
         }
     },

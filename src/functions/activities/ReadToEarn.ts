@@ -48,12 +48,15 @@ export class ReadToEarn extends Workers {
 
             // 首先获取用户当前积分余额
             const userDataRequest: AxiosRequestConfig = {
-                url: 'https://prod.rewardsplatform.microsoft.com/dapi/me',
+                url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${accessToken}`,
+                    'authorization': `Bearer ${accessToken}`,
                     'X-Rewards-Country': geoLocale,
-                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
+                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'zh-CN',
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Content-Type': 'application/json'
                 }
             }
             
@@ -76,6 +79,7 @@ export class ReadToEarn extends Workers {
             
             this.bot.log(this.bot.isMobile, 'READ-TO-EARN', `当前余额: ${userBalance} 积分`)
 
+            // 使用原始成功的请求参数格式
             const jsonData = {
                 amount: 1,
                 country: geoLocale,

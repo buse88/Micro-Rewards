@@ -1,83 +1,334 @@
 import axios from 'axios'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
 
-// 获取真实阅读赚积分进度（使用正确的API调用方式）
-async function getReadProgressFromAPI(accessToken: string, geoLocale?: string, config?: any): Promise<{ progress: number, max: number } | null> {
-    try {
-        if (!accessToken) {
-            console.log('[提示] 未获取到accessToken，无法获取阅读赚积分。')
-            return null
+// 加载配置文件
+function loadConfig() {
+    // 查找配置文件路径
+    const configPaths = [
+        path.join(process.cwd(), 'dist', 'config.json'),
+        path.join(process.cwd(), 'src', 'config.json'),
+        path.join(process.cwd(), 'config.json')
+    ]
+    
+    const accountsPaths = [
+        path.join(process.cwd(), 'dist', 'accounts.json'),
+        path.join(process.cwd(), 'src', 'accounts.json'),
+        path.join(process.cwd(), 'accounts.json')
+    ]
+    
+    let configPath = null
+    let accountsPath = null
+    
+    // 查找配置文件
+    for (const configPathCandidate of configPaths) {
+        if (fs.existsSync(configPathCandidate)) {
+            configPath = configPathCandidate
+            break
         }
-
-        if (config?.enableDebugLog) console.log('[debug] 开始获取阅读赚积分进度...')
-        if (config?.enableDebugLog) console.log('[debug] accessToken长度:', accessToken.length)
-        if (config?.enableDebugLog) console.log('[debug] geoLocale:', geoLocale)
-
-        // 尝试多个地区配置，因为阅读积分可能在不同地区可用
-        const regionsToTry = ['cn', 'us', 'en-us', geoLocale || 'cn'].filter((r, i, arr) => arr.indexOf(r) === i)
-        
-        for (const region of regionsToTry) {
-            try {
-                if (config?.enableDebugLog) console.log(`[debug] 尝试地区 ${region} 获取阅读积分信息...`)
-                
-                const readToEarnRequest = {
-                    url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'X-Rewards-Country': region,
-                        'X-Rewards-Language': 'en',
-                        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36'
-                    }
-                }
-
-                if (config?.enableDebugLog) console.log('[debug] 发送阅读积分API请求:', readToEarnRequest.url)
-                const readToEarnResponse = await axios(readToEarnRequest)
-                const readToEarnData = readToEarnResponse.data.response
-                if (config?.enableDebugLog) console.log('[debug] 阅读积分API响应:', JSON.stringify(readToEarnData, null, 2))
-                
-                // 查找阅读赚积分活动 - 支持多种offerid格式
-                const readToEarnActivity = readToEarnData.promotions?.find((x: any) => 
-                    (x.attributes?.offerid === 'ENUS_readarticle3_30points' || 
-                     x.attributes?.offerid === 'CN_readarticle3_30points' ||
-                     x.attributes?.offerid === 'ZH_readarticle3_30points' ||
-                     x.attributes?.offerid === 'readarticle3_30points') && 
-                    x.attributes?.type === 'msnreadearn'
-                )
-                
-                if (readToEarnActivity) {
-                    const currentPoints = Number(readToEarnActivity.attributes.pointprogress) || 0
-                    const maxPoints = Number(readToEarnActivity.attributes.pointmax) || 30
-                    const remainingPoints = maxPoints - currentPoints
-                    
-                    if (config?.enableDebugLog) console.log(`[debug] 阅读赚积分获取成功 (地区: ${region}):`, { current: currentPoints, max: maxPoints, remaining: remainingPoints })
-                    if (config?.enableDebugLog) console.log('[debug] 找到的活动详情:', {
-                        offerid: readToEarnActivity.attributes.offerid,
-                        type: readToEarnActivity.attributes.type,
-                        pointprogress: readToEarnActivity.attributes.pointprogress,
-                        pointmax: readToEarnActivity.attributes.pointmax
-                    })
-                    if (config?.enableDebugLog) console.log(`[debug] 匹配到的offerid: ${readToEarnActivity.attributes.offerid}`)
-                    return { progress: currentPoints, max: maxPoints }
-                } else {
-                    if (config?.enableDebugLog) console.log(`[debug] 地区 ${region} 未找到阅读赚积分活动`)
-                    if (config?.enableDebugLog) console.log('[debug] 可用的promotions:', readToEarnData.promotions?.map((p: any) => ({ 
-                        offerid: p.attributes?.offerid, 
-                        type: p.attributes?.type,
-                        pointprogress: p.attributes?.pointprogress,
-                        pointmax: p.attributes?.pointmax
-                    })))
-                }
-            } catch (error: any) {
-                if (config?.enableDebugLog) console.log(`[debug] 地区 ${region} 获取阅读积分失败:`, error.message)
-            }
+    }
+    
+    // 查找账户文件
+    for (const accountsPathCandidate of accountsPaths) {
+        if (fs.existsSync(accountsPathCandidate)) {
+            accountsPath = accountsPathCandidate
+            break
         }
-        
-        if (config?.enableDebugLog) console.log('[debug] 所有地区都未找到阅读赚积分活动')
-        return null
-    } catch (error: any) {
-        console.error('[debug] 获取阅读赚积分信息失败:', error.message)
+    }
+    
+    if (!configPath || !accountsPath) {
         return null
     }
+    
+    try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+        const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'))
+        return { config, accounts }
+    } catch (error) {
+        return null
+    }
+}
+
+// 加载移动端session cookies
+function loadMobileSessionCookies(accountEmail: string) {
+    const mobileCookiesPath = path.join(process.cwd(), 'dist', 'browser', 'sessions', accountEmail, 'mobile_cookies.json')
+    
+    if (!fs.existsSync(mobileCookiesPath)) {
+        return null
+    }
+    
+    try {
+        const cookiesData = fs.readFileSync(mobileCookiesPath, 'utf8')
+        const cookies = JSON.parse(cookiesData)
+        return cookies
+    } catch (error) {
+        return null
+    }
+}
+
+// 构建移动端请求头
+function buildMobileHeaders(cookies: any[]) {
+    const cookieString = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ')
+    
+    if (!cookieString) {
+        return null
+    }
+    
+    return {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; 2210132C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.52 Version/4.0 Mobile Safari/537.36 EdgA/125.0.2535.51',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://rewards.bing.com/',
+        'Origin': 'https://rewards.bing.com',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Cookie': cookieString
+    }
+}
+
+// 获取移动端访问令牌
+async function getMobileAccessToken(cookies: any[], accountEmail: string): Promise<string | null> {
+    try {
+        const headers = buildMobileHeaders(cookies)
+        if (!headers) {
+            return null
+        }
+        
+        // OAuth2.0配置
+        const clientId = '0000000040170455'
+        const authBaseUrl = 'https://login.live.com/oauth20_authorize.srf'
+        const redirectUrl = 'https://login.live.com/oauth20_desktop.srf'
+        const tokenUrl = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token'
+        const scope = 'service::prod.rewardsplatform.microsoft.com::MBI_SSL'
+        
+        // 生成随机state参数
+        const state = crypto.randomBytes(16).toString('hex')
+        
+        // 构建授权URL
+        const authorizeUrl = new URL(authBaseUrl)
+        authorizeUrl.searchParams.append('response_type', 'code')
+        authorizeUrl.searchParams.append('client_id', clientId)
+        authorizeUrl.searchParams.append('redirect_uri', redirectUrl)
+        authorizeUrl.searchParams.append('scope', scope)
+        authorizeUrl.searchParams.append('state', state)
+        authorizeUrl.searchParams.append('access_type', 'offline_access')
+        authorizeUrl.searchParams.append('login_hint', accountEmail)
+        
+        // 发送授权请求
+        const codeResponse = await axios.get(authorizeUrl.href, {
+            headers: headers,
+            maxRedirects: 0,
+            validateStatus: (status) => status < 400
+        })
+        
+        // 从重定向URL中提取授权码
+        const finalUrl = codeResponse.request.res.responseUrl || codeResponse.headers.location
+        
+        if (!finalUrl) {
+            return null
+        }
+        
+        const url = new URL(finalUrl)
+        const code = url.searchParams.get('code')
+        
+        if (!code) {
+            return null
+        }
+        
+        // 使用授权码获取访问令牌
+        const body = new URLSearchParams()
+        body.append('grant_type', 'authorization_code')
+        body.append('client_id', clientId)
+        body.append('code', code)
+        body.append('redirect_uri', redirectUrl)
+        
+        const tokenResponse = await axios.post(tokenUrl, body.toString(), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        })
+        
+        if (tokenResponse.data.access_token) {
+            return tokenResponse.data.access_token
+        } else {
+            return null
+        }
+        
+    } catch (error) {
+        return null
+    }
+}
+
+// 简化的获取阅读赚积分进度函数 - 使用本地token获取方式
+async function getReadProgressSimple(accessToken: string): Promise<{ progress: number; max: number }> {
+    if (!accessToken) {
+        console.log('[TG调试] ❌ 未获取到accessToken，无法获取阅读赚积分。')
+        return { progress: 0, max: 30 }
+    }
+
+    try {
+        console.log('[TG调试] === 开始获取阅读赚积分进度 ===')
+        console.log('[TG调试] accessToken长度:', accessToken.length)
+        console.log('[TG调试] accessToken前10位:', accessToken.substring(0, 10) + '...')
+        
+        const headers: any = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Rewards-Country': 'us',
+            'X-Rewards-Language': 'en'
+        }
+        
+        console.log('[TG调试] === 完整请求信息 ===')
+        console.log('[TG调试] 请求URL: https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613')
+        console.log('[TG调试] 请求方法: GET')
+        console.log('[TG调试] 请求超时: 30000ms')
+        console.log('[TG调试] 完整请求头:')
+        Object.entries(headers).forEach(([key, value]) => {
+            if (key === 'Authorization') {
+                console.log(`[TG调试]   ${key}: Bearer ***${accessToken.slice(-10)}`)
+            } else {
+                console.log(`[TG调试]   ${key}: ${value}`)
+            }
+        })
+        
+        console.log('[TG调试] 发送请求...')
+        const response = await axios.get(
+            "https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613",
+            { headers: headers, timeout: 30000 }
+        )
+        
+        console.log('[TG调试] === 完整响应信息 ===')
+        console.log('[TG调试] 响应状态码:', response.status)
+        console.log('[TG调试] 响应状态文本:', response.statusText)
+        console.log('[TG调试] 响应头:')
+        Object.entries(response.headers).forEach(([key, value]) => {
+            console.log(`[TG调试]   ${key}: ${value}`)
+        })
+        
+        if (response.status === 200 && response.data) {
+            console.log('[TG调试] ✅ API调用成功')
+            console.log('[TG调试] 响应数据结构:')
+            console.log('[TG调试] - response字段存在:', !!response.data.response)
+            console.log('[TG调试] - promotions字段存在:', !!response.data.response?.promotions)
+            console.log('[TG调试] - promotions数量:', response.data.response?.promotions?.length || 0)
+            
+            const promotions = response.data.response?.promotions || []
+            console.log('[TG调试] 找到promotions数量:', promotions.length)
+            
+            let readProgress = { max: 30, progress: 0 }
+            
+            // 调试：打印所有promotions
+            console.log('[TG调试] === 所有promotions详情 ===')
+            for (const promo of promotions) {
+                console.log('[TG调试] promotion:', {
+                    offerid: promo.attributes?.offerid,
+                    type: promo.attributes?.type,
+                    pointmax: promo.attributes?.pointmax,
+                    pointprogress: promo.attributes?.pointprogress
+                })
+            }
+            
+            for (const promo of promotions) {
+                if (promo.attributes?.offerid === "ENUS_readarticle3_30points" && 
+                    promo.attributes?.type === "msnreadearn") {
+                    readProgress = {
+                        max: Number(promo.attributes.pointmax) || 30,
+                        progress: Number(promo.attributes.pointprogress) || 0
+                    }
+                    console.log('[TG调试] ✅ 找到阅读任务:', {
+                        offerid: promo.attributes.offerid,
+                        type: promo.attributes.type,
+                        max: readProgress.max,
+                        progress: readProgress.progress
+                    })
+                    break
+                }
+            }
+            
+            console.log(`[TG调试] 📊 最终阅读进度: ${readProgress.progress}/${readProgress.max}`)
+            return readProgress
+        } else {
+            console.log('[TG调试] ❌ API响应异常')
+            console.log('[TG调试] 响应数据:', JSON.stringify(response.data, null, 2))
+            return { progress: 0, max: 30 }
+        }
+    } catch (error: any) {
+        console.error('[TG调试] ❌ 获取失败:', error.message)
+        if (error.response) {
+            console.error('[TG调试] === 错误响应详情 ===')
+            console.error('[TG调试] 错误响应状态码:', error.response.status)
+            console.error('[TG调试] 错误响应状态文本:', error.response.statusText)
+            console.error('[TG调试] 错误响应头:')
+            Object.entries(error.response.headers).forEach(([key, value]) => {
+                console.error(`[TG调试]   ${key}: ${value}`)
+            })
+            console.error('[TG调试] 错误响应数据:')
+            console.error(JSON.stringify(error.response.data, null, 2))
+        }
+        
+        if (error.request) {
+            console.error('[TG调试] === 请求错误详情 ===')
+            console.error('[TG调试] 请求错误:', error.request)
+        }
+        
+        return { progress: 0, max: 30 }
+    }
+}
+
+// 获取阅读赚积分进度 - 自动获取本地token
+async function getReadProgressFromAPI(accessToken: string | null, geoLocale?: string, accountEmail?: string): Promise<{ progress: number; max: number }> {
+    console.log('[TG调试] === 开始获取阅读积分进度 ===')
+    console.log('[TG调试] 传入参数:', { accessToken: accessToken ? '已提供' : '未提供', geoLocale, accountEmail })
+    
+    // 如果没有传入accessToken，尝试从本地获取
+    if (!accessToken && accountEmail) {
+        console.log('[TG调试] 尝试从本地获取accessToken...')
+        
+        // 加载配置
+        const configData = loadConfig()
+        if (!configData) {
+            console.log('[TG调试] ❌ 无法加载配置文件')
+            return { progress: 0, max: 30 }
+        }
+        console.log('[TG调试] ✅ 配置文件加载成功')
+        
+        // 加载移动端cookies
+        const cookies = loadMobileSessionCookies(accountEmail)
+        if (!cookies) {
+            console.log('[TG调试] ❌ 无法加载移动端cookies')
+            return { progress: 0, max: 30 }
+        }
+        console.log('[TG调试] ✅ 移动端cookies加载成功，数量:', cookies.length)
+        
+        // 获取accessToken
+        console.log('[TG调试] 开始获取本地accessToken...')
+        const localAccessToken = await getMobileAccessToken(cookies, accountEmail)
+        if (!localAccessToken) {
+            console.log('[TG调试] ❌ 无法获取本地accessToken')
+            return { progress: 0, max: 30 }
+        }
+        
+        console.log('[TG调试] ✅ 成功获取本地accessToken')
+        accessToken = localAccessToken
+    }
+    
+    // 使用获取到的token调用API
+    console.log('[TG调试] 开始调用阅读积分API...')
+    const result = await getReadProgressSimple(accessToken || '')
+    console.log('[TG调试] === 阅读积分获取完成 ===')
+    console.log('[TG调试] 最终结果:', result)
+    return result
 }
 
 // 生成进度条
@@ -97,9 +348,10 @@ function generatePercentage(current: number, max: number): string {
 }
 
 // 转义Markdown特殊字符
-function escapeMarkdown(text: string): string {
+function escapeMarkdown(text?: string): string {
+    text = text || '';
     // 只转义真正的Markdown特殊字符，避免过度转义
-    return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, (match) => {
+    return text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, (match) => {
         // 不转义括号、点号、方括号等常见字符
         if (match === '(' || match === ')' || match === '.' || match === '@' || match === '[' || match === ']') {
             return match
@@ -282,13 +534,17 @@ export async function generateTGMessage(
     // 获取阅读赚积分进度
     let readProgress = null
     if (accessToken) {
-        readProgress = await getReadProgressFromAPI(accessToken, accountRegion, config)
+        // 直接调用简化版本，不需要传入地区参数
+        readProgress = await getReadProgressFromAPI(accessToken, undefined, email)
+    } else {
+        // 如果没有accessToken，尝试从本地获取
+        readProgress = await getReadProgressFromAPI(null, undefined, email)
     }
     
     // 构建消息
     let message = `**Microsoft Rewards 积分报告**\n\n`
-    message += `📧 **账户**: ${escapeMarkdown(maskedEmail)}\n`
-    message += `⏰ **时间**: ${escapeMarkdown(timeStr)}\n\n`
+    message += `📧 **账户**: ${escapeMarkdown(maskedEmail || '')}\n`
+    message += `⏰ **时间**: ${escapeMarkdown(timeStr || '')}\n\n`
     
     message += regionInfo
     
@@ -306,7 +562,7 @@ export async function generateTGMessage(
             if (checkIn.success) {
                 message += `• 每日签到: ✅ 成功 (30积分)\n`
             } else {
-                message += `• 每日签到: ❌ ${escapeMarkdown(checkIn.message)}\n`
+                message += `• 每日签到: ❌ ${escapeMarkdown((checkIn.message || ''))}\n`
             }
         }
         message += '\n'
@@ -336,76 +592,62 @@ export async function generateTGMessage(
     message += `📈 **今日积分统计**: ${todayTotalPoints}/${todayMaxPoints} 积分\n\n`
     
     // 各项任务进度
-    message += `📊 桌面端搜索: ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}% (${pcSearch.pointProgress}/${pcSearch.pointProgressMax})\n`
-    message += `📊 移动端搜索: ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}% (${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax})\n`
-    message += `📊 每日活动: ${generateProgressBar(dailyTasksCompleted > 0 ? dailyTasksPoints : 0, dailyTasksPoints)} ${generatePercentage(dailyTasksCompleted > 0 ? dailyTasksPoints : 0, dailyTasksPoints)}% (${dailyTasksCompleted > 0 ? dailyTasksPoints : 0}/${dailyTasksPoints})\n`
-    message += `📊 更多活动: ${generateProgressBar(moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0, moreActivitiesPoints)} ${generatePercentage(moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0, moreActivitiesPoints)}% (${moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0}/${moreActivitiesPoints})\n`
-    
+    message += `📊 桌面端搜索: ${generateProgressBar(pcSearch.pointProgress, pcSearch.pointProgressMax)} ${generatePercentage(pcSearch.pointProgress, pcSearch.pointProgressMax)}% (${pcSearch.pointProgress}/${pcSearch.pointProgressMax})\n`;
+    message += `📊 移动端搜索: ${generateProgressBar(mobileSearch.pointProgress, mobileSearch.pointProgressMax)} ${generatePercentage(mobileSearch.pointProgress, mobileSearch.pointProgressMax)}% (${mobileSearch.pointProgress}/${mobileSearch.pointProgressMax})\n`;
+    message += `📊 每日活动: ${generateProgressBar(dailyTasksCompleted > 0 ? dailyTasksPoints : 0, dailyTasksPoints)} ${generatePercentage(dailyTasksCompleted > 0 ? dailyTasksPoints : 0, dailyTasksPoints)}% (${dailyTasksCompleted > 0 ? dailyTasksPoints : 0}/${dailyTasksPoints})\n`;
+    message += `📊 更多活动: ${generateProgressBar(moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0, moreActivitiesPoints)} ${generatePercentage(moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0, moreActivitiesPoints)}% (${moreActivitiesCompleted > 0 ? moreActivitiesPoints : 0}/${moreActivitiesPoints})\n`;
     // 阅读赚积分
     if (readProgress) {
-        message += `📊 阅读赚积分: ${generateProgressBar(readProgress.progress, readProgress.max)} ${generatePercentage(readProgress.progress, readProgress.max)}% (${readProgress.progress}/${readProgress.max})\n`
+        message += `📊 阅读赚积分: ${generateProgressBar(readProgress.progress, readProgress.max)} ${generatePercentage(readProgress.progress, readProgress.max)}% (${readProgress.progress}/${readProgress.max})\n`;
     } else {
-        message += `📊 阅读赚积分: x/x 获取失败\n`
+        message += `📊 阅读赚积分: x/x 获取失败\n`;
     }
-    
     // 今日总计
-    message += `📊 今日总计: ${generateProgressBar(todayTotalPoints, todayMaxPoints)} ${generatePercentage(todayTotalPoints, todayMaxPoints)}% (${todayTotalPoints}/${todayMaxPoints})\n\n`
-    
+    message += `📊 今日总计: ${generateProgressBar(todayTotalPoints, todayMaxPoints)} ${generatePercentage(todayTotalPoints, todayMaxPoints)}% (${todayTotalPoints}/${todayMaxPoints})\n\n`;
     // 已完成和待完成项目
-    const completedItems = []
-    const pendingItems = []
-    
-    if (pcSearch.pointProgress >= pcSearch.pointProgressMax && pcSearch.pointProgressMax > 0) completedItems.push('桌面端搜索')
-    else if (pcSearch.pointProgressMax > 0) pendingItems.push('桌面端搜索')
-    
-    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax && mobileSearch.pointProgressMax > 0) completedItems.push('移动端搜索')
-    else if (mobileSearch.pointProgressMax > 0) pendingItems.push('移动端搜索')
-    
-    if (dailyTasksCompleted === dailyTasksTotal && dailyTasksTotal > 0) completedItems.push('每日活动')
-    else if (dailyTasksTotal > 0) pendingItems.push('每日活动')
-    
-    if (moreActivitiesCompleted === moreActivitiesTotal && moreActivitiesTotal > 0) completedItems.push('更多活动')
-    else if (moreActivitiesTotal > 0) pendingItems.push('更多活动')
-    
-    if (readProgress && readProgress.progress >= readProgress.max && readProgress.max > 0) completedItems.push('阅读赚积分')
-    else if (readProgress && readProgress.max > 0) pendingItems.push('阅读赚积分')
-    
+    const completedItems = [];
+    const pendingItems = [];
+    if (pcSearch.pointProgress >= pcSearch.pointProgressMax && pcSearch.pointProgressMax > 0) completedItems.push('桌面端搜索');
+    else if (pcSearch.pointProgressMax > 0) pendingItems.push('桌面端搜索');
+    if (mobileSearch.pointProgress >= mobileSearch.pointProgressMax && mobileSearch.pointProgressMax > 0) completedItems.push('移动端搜索');
+    else if (mobileSearch.pointProgressMax > 0) pendingItems.push('移动端搜索');
+    if (dailyTasksCompleted === dailyTasksTotal && dailyTasksTotal > 0) completedItems.push('每日活动');
+    else if (dailyTasksTotal > 0) pendingItems.push('每日活动');
+    if (moreActivitiesCompleted === moreActivitiesTotal && moreActivitiesTotal > 0) completedItems.push('更多活动');
+    else if (moreActivitiesTotal > 0) pendingItems.push('更多活动');
+    if (readProgress && readProgress.progress >= readProgress.max && readProgress.max > 0) completedItems.push('阅读赚积分');
+    else if (readProgress && readProgress.max > 0) pendingItems.push('阅读赚积分');
     // 任务完成状态
     if (completedItems.length > 0) {
-        message += `✅ **已完成**: ${completedItems.join(', ')}\n`
+        message += `✅ **已完成**: ${completedItems.join(', ')}\n`;
     }
-    message += '---------------------------------------------------------------\n'
+    message += '---------------------------------------------------------------\n';
     if (pendingItems.length > 0) {
-        message += `❌ **待完成**: ${pendingItems.join(', ')}\n`
+        message += `❌ **待完成**: ${pendingItems.join(', ')}\n`;
     } else {
-        message += `❌ **待完成**: \n`
+        message += `❌ **待完成**: \n`;
     }
-    message += '---------------------------------------------------------------\n'
-    
+    message += '---------------------------------------------------------------\n';
     // 每日活动明细
-    message += `📋 **每日活动**:\n`
-    
+    message += `📋 **每日活动**:\n`;
     todayTasks.forEach((task: any) => {
-        const status = task.complete ? '✅' : '❌'
-        const points = task.pointProgressMax || 0
-        const title = task.title || '未知任务'
-        const date = timeStr.split(' ')[0]
-        const progress = `${task.pointProgress || points}/${points}`
-        message += `${status} ${escapeMarkdown(title)} (${points}积分) - ${date} -  📊 进度: ${progress}\n`
-    })
-    message += '---------------------------------------------------------------\n'
-    
+        const status = task.complete ? '✅' : '❌';
+        const points = task.pointProgressMax || 0;
+        const title = (task.title || '未知任务') + '';
+        const date = (timeStr.split(' ')[0]) + '';
+        const progress = `${task.pointProgress || points}/${points}`;
+        message += `${status} ${escapeMarkdown(title || '')} (${points}积分) - ${date} -  📊 进度: ${progress}\n`;
+    });
+    message += '---------------------------------------------------------------\n';
     // 更多活动明细
-    message += `📋 **更多活动**: ${moreActivitiesTotal} 个活动--🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${moreActivitiesCompleted}/${moreActivitiesTotal}\n`
-    
+    message += `📋 **更多活动**: ${moreActivitiesTotal} 个活动--🎯 总积分: ${moreActivitiesPoints} ✅ 已完成: ${moreActivitiesCompleted}/${moreActivitiesTotal}\n`;
     allMoreActivities.forEach((activity: any) => {
-        const status = activity.complete ? '✅' : '❌'
-        const points = activity.pointProgressMax || 0
-        const date = activity.date || timeStr.split(' ')[0]
-        const progress = `${activity.pointProgress || points}/${points}`
-        const title = activity.title || '未知任务'
-        message += `${status} ${escapeMarkdown(title)} (${points}积分) - ${date} -📊 进度: ${progress}\n`
-    })
-    
-    return message
+        const status = activity.complete ? '✅' : '❌';
+        const points = activity.pointProgressMax || 0;
+        const date = (activity.date || timeStr.split(' ')[0]) + '';
+        const progress = `${activity.pointProgress || points}/${points}`;
+        const title = (activity.title || '未知任务') + '';
+        message += `${status} ${escapeMarkdown(title || '')} (${points}积分) - ${date} -📊 进度: ${progress}\n`;
+    });
+    return message;
 }

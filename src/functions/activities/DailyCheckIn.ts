@@ -18,16 +18,36 @@ export class DailyCheckIn extends Workers {
         }
 
         try {
+            if (!data.userProfile || !data.userProfile.attributes) {
+                throw new Error('用户信息缺失，无法获取地区信息')
+            }
             // 恢复为单一地区签到逻辑
-            let geoLocale = data.userProfile.attributes.country
+            let geoLocale = data.userProfile.attributes.country || 'us'
+            
+            // 获取账号实际地区（从ruid）
+            let actualAccountRegion = 'us'
+            const ruid = data.userProfile.ruid
+            if (typeof ruid === 'string' && ruid.includes('-')) {
+                const parts = ruid.split('-')
+                if (parts.length > 0 && typeof parts[0] === 'string') {
+                    actualAccountRegion = parts[0].toLowerCase()
+                }
+            }
+            
+            if (this.bot.config.enableDebugLog) {
+                console.log('[签到调试] 账号实际地区 (ruid):', actualAccountRegion)
+                console.log('[签到调试] 账号配置地区 (attributes.country):', data.userProfile?.attributes?.country || '未设置')
+                console.log('[签到调试] 配置的preferredCountry:', this.bot.config.searchSettings.preferredCountry)
+            }
+            
             // 优先级：preferredCountry > 账号地区 > us
-                if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
-                    geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
+            if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
+                geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
                 if (this.bot.config.enableDebugLog) {
                     console.log('[签到调试] 使用preferredCountry配置的地区:', geoLocale)
                 }
-                } else if (geoLocale && geoLocale.length === 2) {
-                    geoLocale = geoLocale.toLowerCase()
+            } else if (geoLocale && geoLocale.length === 2) {
+                geoLocale = geoLocale.toLowerCase()
                 if (this.bot.config.enableDebugLog) {
                     console.log('[签到调试] 使用账号实际地区:', geoLocale)
                 }
@@ -37,8 +57,10 @@ export class DailyCheckIn extends Workers {
                     console.log('[签到调试] 使用默认地区:', geoLocale)
                 }
             }
+            
             if (this.bot.config.enableDebugLog) {
-            console.log('[签到调试] geoLocale:', geoLocale)
+                console.log('[签到调试] geoLocale:', geoLocale)
+                console.log('[签到调试] 注意：如果账号实际地区与请求地区不匹配，可能影响签到成功率')
             }
 
             // 只尝试一个地区签到
@@ -75,28 +97,69 @@ export class DailyCheckIn extends Workers {
                 console.log(`[签到调试] 地区 ${geoLocale} 签到前余额:`, beforeBalance)
             }
 
-            const jsonData = {
-                amount: 1,
-                country: geoLocale,
-                id: randomBytes(64).toString('hex'),
-                type: 101,
-                attributes: {
-                    offerid: 'Gamification_Sapphire_DailyCheckIn'
+            // 根据地区选择不同的请求参数格式
+            let jsonData: any
+            let requestHeaders: any
+
+            if (geoLocale === 'cn') {
+                // 使用油猴脚本的参数格式
+                const dateTime = new Date()
+                const yearNow = dateTime.getFullYear()
+                const monthNow = ("0" + (dateTime.getMonth() + 1)).slice(-2)
+                const dayNow = ("0" + dateTime.getDate()).slice(-2)
+                const dateNowNum = Number(`${yearNow}${monthNow}${dayNow}`)
+
+                jsonData = {
+                    amount: 1,
+                    attributes: {
+                        offerid: 'Gamification_Sapphire_DailyCheckIn',
+                        date: dateNowNum,
+                        signIn: false,
+                        timezoneOffset: "08:00:00"
+                    },
+                    id: "",
+                    type: 101,
+                    country: "cn",
+                    risk_context: {},
+                    channel: "SAAndroid"
                 }
-            }
-            if (this.bot.config.enableDebugLog) {
-                console.log(`[签到调试] 地区 ${geoLocale} 请求参数:`, JSON.stringify(jsonData, null, 2))
+
+                requestHeaders = {
+                    'authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+
+                if (this.bot.config.enableDebugLog) {
+                    console.log(`[签到调试] 地区 ${geoLocale} 使用油猴脚本格式，请求参数:`, JSON.stringify(jsonData, null, 2))
+                }
+            } else {
+                // 使用原有格式
+                jsonData = {
+                    amount: 1,
+                    country: geoLocale,
+                    id: randomBytes(64).toString('hex'),
+                    type: 101,
+                    attributes: {
+                        offerid: 'Gamification_Sapphire_DailyCheckIn'
+                    }
+                }
+
+                requestHeaders = {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'X-Rewards-Country': geoLocale,
+                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
+                }
+
+                if (this.bot.config.enableDebugLog) {
+                    console.log(`[签到调试] 地区 ${geoLocale} 使用原有格式，请求参数:`, JSON.stringify(jsonData, null, 2))
+                }
             }
 
             const claimRequest: AxiosRequestConfig = {
                 url: 'https://prod.rewardsplatform.microsoft.com/dapi/me/activities',
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'X-Rewards-Country': geoLocale,
-                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
-                },
+                headers: requestHeaders,
                 data: JSON.stringify(jsonData)
             }
 

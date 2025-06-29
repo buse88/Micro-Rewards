@@ -25,7 +25,7 @@ export default class BrowserFunc {
     */
     async goHome(page: Page) {
         try {
-            // 根据配置决定是否添加X-Rewards请求头
+            // 根据配置决定是否添加油猴脚本风格的请求头
             const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
                               (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
             
@@ -35,10 +35,8 @@ export default class BrowserFunc {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
             }
             
-            // 只有在CN地区时才添加X-Rewards相关请求头
+            // 当地区为cn时，对标油猴脚本的请求头
             if (isCNRegion) {
-                extraHeaders['X-Rewards-Country'] = 'cn'
-                extraHeaders['X-Rewards-Language'] = 'zh-CN'
                 extraHeaders['Accept-Charset'] = 'utf-8'
                 extraHeaders['Cache-Control'] = 'no-cache'
                 extraHeaders['Pragma'] = 'no-cache'
@@ -46,6 +44,7 @@ export default class BrowserFunc {
                 extraHeaders['Sec-Fetch-Mode'] = 'navigate'
                 extraHeaders['Sec-Fetch-Site'] = 'none'
                 extraHeaders['Upgrade-Insecure-Requests'] = '1'
+                extraHeaders['Connection'] = 'keep-alive'
             }
 
             await page.setExtraHTTPHeaders(extraHeaders)
@@ -76,19 +75,28 @@ export default class BrowserFunc {
                 await this.goHome(this.bot.homePage)
             }
 
-            // 在重新加载页面前设置请求头
-            await this.bot.homePage.setExtraHTTPHeaders({
-                'X-Rewards-Country': this.bot.config.searchSettings.preferredCountry || 'cn',
-                'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'zh-CN',
+            // 根据配置决定是否添加油猴脚本风格的请求头
+            const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
+                              (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
+            
+            const extraHeaders: any = {
                 'Accept-Language': this.getAcceptLanguage(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Upgrade-Insecure-Requests': '1'
-            })
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+            }
+            
+            // 当地区为cn时，对标油猴脚本的请求头
+            if (isCNRegion) {
+                extraHeaders['Accept-Charset'] = 'utf-8'
+                extraHeaders['Cache-Control'] = 'no-cache'
+                extraHeaders['Pragma'] = 'no-cache'
+                extraHeaders['Sec-Fetch-Dest'] = 'document'
+                extraHeaders['Sec-Fetch-Mode'] = 'navigate'
+                extraHeaders['Sec-Fetch-Site'] = 'none'
+                extraHeaders['Upgrade-Insecure-Requests'] = '1'
+                extraHeaders['Connection'] = 'keep-alive'
+            }
+
+            await this.bot.homePage.setExtraHTTPHeaders(extraHeaders)
 
             // Reload the page to get new data
             await this.bot.homePage.reload({ waitUntil: 'domcontentloaded' })

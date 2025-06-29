@@ -543,12 +543,19 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
                 console.log('[debug] sendPointsNotification 被调用', accountEmail)
             }
 
-            if (!this.config.webhook?.telegram?.enabled) {
+            // 检查是否有任何通知渠道启用
+            const hasWebhookEnabled = this.config.webhook?.enabled && this.config.webhook?.url?.length >= 10
+            const hasTelegramEnabled = this.config.webhook?.telegram?.enabled && 
+                                     this.config.webhook?.telegram?.botToken && 
+                                     this.config.webhook?.telegram?.chatId
+            
+            if (!hasWebhookEnabled && !hasTelegramEnabled) {
                 if (this.config.enableDebugLog) {
-                    console.log('Telegram通知已禁用')
+                    console.log('所有通知渠道都已禁用')
                 }
                 return
             }
+
             const axiosClient = new AxiosClient({
                 proxyAxios: false,
                 url: '',
@@ -669,17 +676,29 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
      * 发送Telegram消息
      */
     async sendTelegramMessage(message: string): Promise<void> {
+        console.log('[TG发送调试] === 开始发送Telegram消息 ===')
+        console.log('[TG发送调试] 消息长度:', message.length)
+        console.log('[TG发送调试] 消息预览:', message.substring(0, 200) + '...')
+        
         try {
             if (!this.config.webhook?.telegram?.enabled) {
-                console.log('[提示] Telegram通知未启用')
+                console.log('[TG发送调试] ❌ Telegram通知未启用')
                 return
             }
+            console.log('[TG发送调试] ✅ Telegram通知已启用')
 
             const telegramConfig = this.config.webhook.telegram
             if (!telegramConfig.botToken || !telegramConfig.chatId) {
-                console.log('[提示] Telegram配置不完整，缺少botToken或chatId')
+                console.log('[TG发送调试] ❌ Telegram配置不完整，缺少botToken或chatId')
+                console.log('[TG发送调试] 配置详情:', {
+                    enabled: telegramConfig.enabled,
+                    botToken: telegramConfig.botToken ? '已配置' : '未配置',
+                    chatId: telegramConfig.chatId ? '已配置' : '未配置',
+                    apiProxy: telegramConfig.apiProxy || '未配置'
+                })
                 return
             }
+            console.log('[TG发送调试] ✅ Telegram配置完整')
 
             const axiosClient = new AxiosClient({
                 proxyAxios: false,
@@ -693,6 +712,12 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
                 ? `${telegramConfig.apiProxy}/bot${telegramConfig.botToken}/sendMessage`
                 : `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`
 
+            console.log('[TG发送调试] === 完整请求信息 ===')
+            console.log('[TG发送调试] API URL:', apiUrl)
+            console.log('[TG发送调试] 请求方法: POST')
+            console.log('[TG发送调试] Chat ID:', telegramConfig.chatId)
+            console.log('[TG发送调试] Bot Token:', telegramConfig.botToken.substring(0, 10) + '...')
+
             const requestData = {
                 chat_id: telegramConfig.chatId,
                 text: message,
@@ -700,6 +725,13 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
                 disable_web_page_preview: true
             }
 
+            console.log('[TG发送调试] 请求数据:')
+            console.log('[TG发送调试] - chat_id:', requestData.chat_id)
+            console.log('[TG发送调试] - parse_mode:', requestData.parse_mode)
+            console.log('[TG发送调试] - disable_web_page_preview:', requestData.disable_web_page_preview)
+            console.log('[TG发送调试] - text长度:', requestData.text.length)
+
+            console.log('[TG发送调试] 发送请求...')
             const response = await axiosClient.request({
                 method: 'POST',
                 url: apiUrl,
@@ -709,13 +741,41 @@ ${this.getDetailedTaskStatusFromPoints(pointsInfo)}`
                 }
             }, true) // 使用直连模式
 
+            console.log('[TG发送调试] === 完整响应信息 ===')
+            console.log('[TG发送调试] 响应状态码:', response.status)
+            console.log('[TG发送调试] 响应状态文本:', response.statusText)
+            console.log('[TG发送调试] 响应头:')
+            Object.entries(response.headers).forEach(([key, value]) => {
+                console.log(`[TG发送调试]   ${key}: ${value}`)
+            })
+
             if (response.data?.ok) {
-                console.log(`✅ Telegram消息发送成功，消息ID: ${response.data.result.message_id}`)
+                console.log(`[TG发送调试] ✅ Telegram消息发送成功，消息ID: ${response.data.result.message_id}`)
+                console.log('[TG发送调试] 响应数据:', JSON.stringify(response.data, null, 2))
             } else {
-                console.error('❌ Telegram API错误:', response.data?.description || '未知错误')
+                console.error('[TG发送调试] ❌ Telegram API错误:', response.data?.description || '未知错误')
+                console.error('[TG发送调试] 完整响应数据:', JSON.stringify(response.data, null, 2))
             }
         } catch (error: any) {
-            console.error('❌ Telegram通知发送失败:', error.message)
+            console.error('[TG发送调试] ❌ Telegram通知发送失败:', error.message)
+            console.error('[TG发送调试] 错误堆栈:', error.stack)
+            
+            if (error.response) {
+                console.error('[TG发送调试] === 错误响应详情 ===')
+                console.error('[TG发送调试] 错误响应状态码:', error.response.status)
+                console.error('[TG发送调试] 错误响应状态文本:', error.response.statusText)
+                console.error('[TG发送调试] 错误响应头:')
+                Object.entries(error.response.headers).forEach(([key, value]) => {
+                    console.error(`[TG发送调试]   ${key}: ${value}`)
+                })
+                console.error('[TG发送调试] 错误响应数据:')
+                console.error(JSON.stringify(error.response.data, null, 2))
+            }
+            
+            if (error.request) {
+                console.error('[TG发送调试] === 请求错误详情 ===')
+                console.error('[TG发送调试] 请求错误:', error.request)
+            }
         }
     }
 }

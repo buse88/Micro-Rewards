@@ -51,7 +51,7 @@ fi
 
 # 4. 检查现有镜像
 echo "[INFO] 检查现有Docker镜像..."
-if docker images | grep -q "micro-rewards"; then
+if docker images | grep -q "rewards"; then
     echo "[INFO] 发现现有镜像，将使用现有镜像启动服务"
     USE_EXISTING_IMAGE=true
 else
@@ -129,7 +129,8 @@ version: '3.8'
 
 services:
   micro-rewards:
-    image: micro-rewards:latest
+    image: rewards
+    build: .
     container_name: micro-rewards
     restart: "no"
     volumes:

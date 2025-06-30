@@ -70,13 +70,13 @@ wget https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto
 你可以直接使用如下命令一键全自动部署，无需手动下载脚本：
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh)
+wget -qO- https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh | bash
 ```
 
 如未安装wget，也可以使用curl方式：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh)
+curl -fsSL https://raw.githubusercontent.com/buse88/Micro-Rewards/refs/heads/main/auto_deploy_simple.sh | bash
 ```
 
 上述命令会自动下载安装、配置并启动服务，适合新手和快速部署场景。

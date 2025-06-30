@@ -2,9 +2,10 @@ version: '3.8'
 
 services:
   micro-rewards:
+    image: rewards
     build: .
     container_name: micro-rewards
-    restart: unless-stopped
+    restart: no
     volumes:
       ### Replace "/path/to/" with the actual path to where you want to save the files on your local machine.
       - ./src/accounts.json:/usr/src/micro-rewards/dist/accounts.json
@@ -12,6 +13,6 @@ services:
       - ./src/browser/sessions:/usr/src/micro-rewards/dist/browser/sessions # Optional, saves your login session
     environment:
       - NODE_ENV=production
-      - CRON_SCHEDULE=0 10 * * * # 每天早上10点运行
+      - CRON_SCHEDULE=20 10 * * * # 每天早上10点20运行
       - RUN_ON_START=true # Runs the script on container startup
       - TZ=Asia/Shanghai # Set your timezone for proper scheduling

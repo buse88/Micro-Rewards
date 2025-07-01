@@ -113,7 +113,7 @@ export async function getAppComponents(isMobile: boolean) {
     }
 }
 
-export async function updateFingerprintUserAgent(fingerprint: BrowserFingerprintWithHeaders, isMobile: boolean): Promise<BrowserFingerprintWithHeaders> {
+export async function updateFingerprintUserAgent(fingerprint: BrowserFingerprintWithHeaders, isMobile: boolean, config?: any): Promise<BrowserFingerprintWithHeaders> {
     try {
         const userAgentData = await getUserAgent(isMobile)
         const componentData = await getAppComponents(isMobile)
@@ -127,14 +127,46 @@ export async function updateFingerprintUserAgent(fingerprint: BrowserFingerprint
         fingerprint.headers['sec-ch-ua'] = `"Microsoft Edge";v="${componentData.edge_major_version}", "Not=A?Brand";v="${componentData.not_a_brand_major_version}", "Chromium";v="${componentData.chrome_major_version}"`
         fingerprint.headers['sec-ch-ua-full-version-list'] = `"Microsoft Edge";v="${componentData.edge_version}", "Not=A?Brand";v="${componentData.not_a_brand_version}", "Chromium";v="${componentData.chrome_version}"`
 
-        /*
-        Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36 EdgA/129.0.0.0
-        sec-ch-ua-full-version-list: "Microsoft Edge";v="129.0.2792.84", "Not=A?Brand";v="8.0.0.0", "Chromium";v="129.0.6668.90"
-        sec-ch-ua: "Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129"
-
-        Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36
-        "Google Chrome";v="129.0.6668.90", "Not=A?Brand";v="8.0.0.0", "Chromium";v="129.0.6668.90"
-        */
+        // 动态设置accept-language
+        let acceptLanguage = 'en-US,en;q=0.9'
+        if (config && config.preferredCountry && config.preferredCountry.length === 2) {
+            const country = config.preferredCountry.toLowerCase()
+            switch (country) {
+                case 'cn':
+                    acceptLanguage = 'zh-CN,zh;q=0.9,en;q=0.8'
+                    break
+                case 'us':
+                    acceptLanguage = 'en-US,en;q=0.9'
+                    break
+                case 'jp':
+                    acceptLanguage = 'ja-JP,ja;q=0.9,en;q=0.8'
+                    break
+                case 'kr':
+                    acceptLanguage = 'ko-KR,ko;q=0.9,en;q=0.8'
+                    break
+                case 'gb':
+                    acceptLanguage = 'en-GB,en;q=0.9'
+                    break
+                case 'de':
+                    acceptLanguage = 'de-DE,de;q=0.9,en;q=0.8'
+                    break
+                case 'fr':
+                    acceptLanguage = 'fr-FR,fr;q=0.9,en;q=0.8'
+                    break
+                case 'es':
+                    acceptLanguage = 'es-ES,es;q=0.9,en;q=0.8'
+                    break
+                case 'it':
+                    acceptLanguage = 'it-IT,it;q=0.9,en;q=0.8'
+                    break
+                case 'ru':
+                    acceptLanguage = 'ru-RU,ru;q=0.9,en;q=0.8'
+                    break
+                default:
+                    acceptLanguage = 'en-US,en;q=0.9'
+            }
+        }
+        fingerprint.headers['accept-language'] = acceptLanguage
 
         return fingerprint
     } catch (error) {

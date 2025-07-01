@@ -24,13 +24,13 @@
     "searchSettings": {
         "useGeoLocaleQueries": false,
 		"preferredCountry": "cn",
-        "rewardsLanguage": "zh-CN",
+        "rewardsLanguage": "",
         "useDomesticHotAPIs": true,
         "scrollRandomResults": false,
         "clickRandomResults": false,
         "searchDelay": {
-            "min": "30s",
-            "max": "180s"
+            "min": "1min",
+            "max": "3min"
         },
         "retryMobileSearchAmount": 1,
         "retryDesktopSearchAmount": 1,

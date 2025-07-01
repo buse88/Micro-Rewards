@@ -25,30 +25,6 @@ export default class BrowserFunc {
     */
     async goHome(page: Page) {
         try {
-            // 根据配置决定是否添加油猴脚本风格的请求头
-            const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
-                              (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
-            
-            const extraHeaders: any = {
-                'Accept-Language': this.getAcceptLanguage(),
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-            }
-            
-            // 当地区为cn时，对标油猴脚本的请求头
-            if (isCNRegion) {
-                extraHeaders['Accept-Charset'] = 'utf-8'
-                extraHeaders['Cache-Control'] = 'no-cache'
-                extraHeaders['Pragma'] = 'no-cache'
-                extraHeaders['Sec-Fetch-Dest'] = 'document'
-                extraHeaders['Sec-Fetch-Mode'] = 'navigate'
-                extraHeaders['Sec-Fetch-Site'] = 'none'
-                extraHeaders['Upgrade-Insecure-Requests'] = '1'
-                extraHeaders['Connection'] = 'keep-alive'
-            }
-
-            await page.setExtraHTTPHeaders(extraHeaders)
-
             await this.bot.browser.utils.safeGoto(page, this.bot.config.baseURL)
             await page.waitForLoadState('domcontentloaded')
             await this.bot.browser.utils.reloadBadPage(page)
@@ -74,29 +50,6 @@ export default class BrowserFunc {
                 this.bot.log(this.bot.isMobile, 'DASHBOARD-DATA', '当前页面不是dashboard页面，正在跳转到dashboard页面')
                 await this.goHome(this.bot.homePage)
             }
-
-            // 根据配置决定是否添加油猴脚本风格的请求头
-            const isCNRegion = this.bot.config.searchSettings.preferredCountry === 'cn' || 
-                              (this.bot.config.searchSettings.useGeoLocaleQueries && this.bot.config.searchSettings.preferredCountry === 'cn')
-            
-            const extraHeaders: any = {
-                'Accept-Language': this.getAcceptLanguage(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-            }
-            
-            // 当地区为cn时，对标油猴脚本的请求头
-            if (isCNRegion) {
-                extraHeaders['Accept-Charset'] = 'utf-8'
-                extraHeaders['Cache-Control'] = 'no-cache'
-                extraHeaders['Pragma'] = 'no-cache'
-                extraHeaders['Sec-Fetch-Dest'] = 'document'
-                extraHeaders['Sec-Fetch-Mode'] = 'navigate'
-                extraHeaders['Sec-Fetch-Site'] = 'none'
-                extraHeaders['Upgrade-Insecure-Requests'] = '1'
-                extraHeaders['Connection'] = 'keep-alive'
-            }
-
-            await this.bot.homePage.setExtraHTTPHeaders(extraHeaders)
 
             // Reload the page to get new data
             await this.bot.homePage.reload({ waitUntil: 'domcontentloaded' })
@@ -136,11 +89,11 @@ export default class BrowserFunc {
                     lifetimePoints: dashboardData.userStatus?.lifetimePoints,
                     levelInfo: dashboardData.userStatus?.levelInfo
                 })
+                console.log(`[debug] 接口返回地区：${dashboardData.userProfile?.attributes?.country || '未设置'}`)
                 console.log('[debug] - 用户地区:', dashboardData.userProfile?.attributes?.country)
                 console.log('[debug] - 用户语言:', dashboardData.userProfile?.attributes?.language || '未设置')
                 console.log('[debug] - 用户ruid:', dashboardData.userProfile?.ruid)
                 console.log('[debug] - 配置的preferredCountry:', this.bot.config.searchSettings.preferredCountry)
-                console.log('[debug] - 浏览器Accept-Language:', this.getAcceptLanguage())
                 
                 // 修复每日任务数量显示 - 显示实际的每日任务数量
                 const today = this.bot.utils.getFormattedDate()
@@ -433,23 +386,5 @@ export default class BrowserFunc {
         } catch (error) {
             this.bot.log(this.bot.isMobile, 'CLOSE-BROWSER', `关闭浏览器过程中发生错误: ${error}`, 'error')
         }
-    }
-
-    /**
-     * 获取Accept-Language
-     */
-    private getAcceptLanguage(): string {
-        if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
-            const country = this.bot.config.searchSettings.preferredCountry.toLowerCase()
-            switch (country) {
-                case 'cn':
-                    return 'zh-CN,zh;q=0.9,en;q=0.8'
-                case 'us':
-                    return 'en-US,en;q=0.9'
-                default:
-                    return 'zh-CN,zh;q=0.9,en;q=0.8'
-            }
-        }
-        return 'zh-CN,zh;q=0.9,en;q=0.8'
     }
 }

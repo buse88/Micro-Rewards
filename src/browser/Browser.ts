@@ -126,7 +126,7 @@ class Browser {
             browsers: [{ name: 'edge' }]
         })
 
-        const updatedFingerPrintData = await updateFingerprintUserAgent(fingerPrintData, this.bot.isMobile)
+        const updatedFingerPrintData = await updateFingerprintUserAgent(fingerPrintData, this.bot.isMobile, this.bot.config.searchSettings)
 
         return updatedFingerPrintData
     }

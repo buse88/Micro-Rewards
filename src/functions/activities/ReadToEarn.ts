@@ -13,32 +13,11 @@ export class ReadToEarn extends Workers {
         }
 
         try {
-            let geoLocale = data.userProfile.attributes.country
-            // 修改优先级逻辑：preferredCountry > useGeoLocaleQueries > 账号地区 > 默认us
-                if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
-                // 1. 优先使用preferredCountry配置
-                    geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
-                if (this.bot.config.enableDebugLog) {
-                    console.log('[阅读调试] 使用preferredCountry配置的地区:', geoLocale)
-                }
-            } else if (this.bot.config.searchSettings.useGeoLocaleQueries) {
-                // 2. 只有在preferredCountry为空时才检查useGeoLocaleQueries
-                if (geoLocale && geoLocale.length === 2) {
-                    geoLocale = geoLocale.toLowerCase()
-                    if (this.bot.config.enableDebugLog) {
-                    console.log('[阅读调试] 使用账号实际地区:', geoLocale)
-                    }
-                } else {
-                    geoLocale = 'us'
-                    if (this.bot.config.enableDebugLog) {
-                    console.log('[阅读调试] 使用默认地区:', geoLocale)
-                    }
-                }
-            } else {
-                geoLocale = 'us'
-                if (this.bot.config.enableDebugLog) {
-                    console.log('[阅读调试] useGeoLocaleQueries为false且无preferredCountry，使用默认地区:', geoLocale)
-                }
+            let geoLocale = data.userProfile?.attributes?.country || 'us'
+            if (this.bot.config.enableDebugLog) {
+                console.log('[阅读调试] 使用账号实际地区:', geoLocale)
+                console.log(`[debug] X-Rewards-Country: ${geoLocale}`)
+                console.log(`[debug] X-Rewards-Language: ${this.bot.config.searchSettings.rewardsLanguage || 'en'}`)
             }
 
             if (this.bot.config.enableDebugLog) {
@@ -51,12 +30,9 @@ export class ReadToEarn extends Workers {
                 url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
                 method: 'GET',
                 headers: {
-                    'authorization': `Bearer ${accessToken}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'X-Rewards-Country': geoLocale,
-                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'zh-CN',
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Content-Type': 'application/json'
+                    'X-Rewards-Language': this.bot.config.searchSettings.rewardsLanguage || 'en'
                 }
             }
             

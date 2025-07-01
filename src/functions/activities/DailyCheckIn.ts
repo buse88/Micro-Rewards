@@ -21,64 +21,11 @@ export class DailyCheckIn extends Workers {
             if (!data.userProfile || !data.userProfile.attributes) {
                 throw new Error('用户信息缺失，无法获取地区信息')
             }
-            // 恢复为单一地区签到逻辑
-            let geoLocale = data.userProfile.attributes.country || 'us'
-            
-            // 获取账号实际地区（从ruid）
-            let actualAccountRegion = 'us'
-            const ruid = data.userProfile.ruid
-            if (typeof ruid === 'string' && ruid.includes('-')) {
-                const parts = ruid.split('-')
-                if (parts.length > 0 && typeof parts[0] === 'string') {
-                    actualAccountRegion = parts[0].toLowerCase()
-                }
-            }
-            
+            let geoLocale = data.userProfile?.attributes?.country || 'us'
             if (this.bot.config.enableDebugLog) {
-                console.log('[签到调试] 账号实际地区 (ruid):', actualAccountRegion)
-                console.log('[签到调试] 账号配置地区 (attributes.country):', data.userProfile?.attributes?.country || '未设置')
-                console.log('[签到调试] 配置的preferredCountry:', this.bot.config.searchSettings.preferredCountry)
+                console.log('[签到调试] 使用账号实际地区:', geoLocale)
             }
             
-            // 优先级：preferredCountry > 账号地区 > us
-            if (this.bot.config.searchSettings.preferredCountry && this.bot.config.searchSettings.preferredCountry.length === 2) {
-                geoLocale = this.bot.config.searchSettings.preferredCountry.toLowerCase()
-                if (this.bot.config.enableDebugLog) {
-                    console.log('[签到调试] 使用preferredCountry配置的地区:', geoLocale)
-                }
-            } else if (geoLocale && geoLocale.length === 2) {
-                geoLocale = geoLocale.toLowerCase()
-                if (this.bot.config.enableDebugLog) {
-                    console.log('[签到调试] 使用账号实际地区:', geoLocale)
-                }
-            } else {
-                geoLocale = 'us'
-                if (this.bot.config.enableDebugLog) {
-                    console.log('[签到调试] 使用默认地区:', geoLocale)
-                }
-            }
-            
-            if (this.bot.config.enableDebugLog) {
-                console.log('[签到调试] geoLocale:', geoLocale)
-                console.log('[签到调试] 注意：如果账号实际地区与请求地区不匹配，可能影响签到成功率')
-            }
-
-            // 只尝试一个地区签到
-            const result = await this.tryCheckIn(accessToken, geoLocale)
-            return { ...result, region: geoLocale }
-        } catch (error) {
-            if (this.bot.config.enableDebugLog) {
-                console.error('[签到调试] catch error:', error)
-            }
-            const message = '每日签到发生错误: ' + error
-            this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', message, 'error')
-            return { success: false, pointsGained: 0, message, region: '' }
-        }
-    }
-
-    private async tryCheckIn(accessToken: string, geoLocale: string): Promise<{ success: boolean, pointsGained: number, message: string }> {
-        try {
-            // 先获取签到前的余额
             const beforeBalanceRequest: AxiosRequestConfig = {
                 url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
                 method: 'GET',
@@ -180,7 +127,7 @@ export class DailyCheckIn extends Workers {
             if (!responseData || !responseData.response) {
                 const message = `[${geoLocale}] API响应格式错误，无法判断签到状态`
                 this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', message, 'error')
-                return { success: false, pointsGained: 0, message }
+                return { success: false, pointsGained: 0, message, region: geoLocale }
             }
             
             const activity = responseData.response.activity
@@ -208,26 +155,25 @@ export class DailyCheckIn extends Workers {
                 // 余额增加了，说明签到成功
                 const message = `[${geoLocale}] 成功签到，获得 ${actualPointsGained} 积分`
                 this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', message)
-                return { success: true, pointsGained: actualPointsGained, message }
+                return { success: true, pointsGained: actualPointsGained, message, region: geoLocale }
             } else if (activity && activity.id) {
                 // 有活动ID但余额没变化，说明已经签到过了
                 const message = `[${geoLocale}] 今天已经签到过了`
                 this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', message)
-                return { success: false, pointsGained: 0, message }
+                return { success: false, pointsGained: 0, message, region: geoLocale }
             } else {
                 // 其他情况，可能是API错误或网络问题
                 const message = `[${geoLocale}] 签到失败，请检查网络连接或稍后重试`
                 this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', message, 'error')
-                return { success: false, pointsGained: 0, message }
+                return { success: false, pointsGained: 0, message, region: geoLocale }
             }
         } catch (error) {
             if (this.bot.config.enableDebugLog) {
-                console.error(`[签到调试] 地区 ${geoLocale} catch error:`, error)
+                console.error('[签到调试] catch error:', error)
             }
-            const message = `[${geoLocale}] 每日签到发生错误: ` + error
+            const message = '每日签到发生错误: ' + error
             this.bot.log(this.bot.isMobile, 'DAILY-CHECK-IN', message, 'error')
-            return { success: false, pointsGained: 0, message }
+            return { success: false, pointsGained: 0, message, region: '' }
         }
     }
-
 }
